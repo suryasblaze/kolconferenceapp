@@ -1,0 +1,22 @@
+# Development files
+*.log
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+
+# Keep only the final versions
+migrate-to-supabase.js
+migrate-to-supabase-FIXED.js
+supabase-schema.sql
+supabase-schema-FIXED.sql
+SUPABASE-MIGRATION-GUIDE.md
