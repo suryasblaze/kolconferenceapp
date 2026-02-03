@@ -2572,6 +2572,125 @@
                 } else {
                     this.renderUI();
                 }
+
+                // Start meeting reminder system
+                this.startMeetingReminders();
+            }
+
+            // ==================== MEETING REMINDERS ====================
+
+            startMeetingReminders() {
+                // Request notification permission
+                if ('Notification' in window && Notification.permission === 'default') {
+                    Notification.requestPermission();
+                }
+
+                // Track notified meetings to avoid duplicates
+                this.notifiedMeetings = new Set();
+
+                // Check for upcoming meetings every minute
+                this.checkUpcomingMeetings();
+                this.reminderInterval = setInterval(() => {
+                    this.checkUpcomingMeetings();
+                }, 60000); // Check every 1 minute
+            }
+
+            checkUpcomingMeetings() {
+                if (!this.state.meetings || this.state.meetings.length === 0) return;
+
+                const now = new Date();
+                const todayStr = now.toISOString().split('T')[0];
+                const currentHour = now.getHours();
+                const currentMinute = now.getMinutes();
+                const currentTimeInMinutes = currentHour * 60 + currentMinute;
+
+                // Get today's meetings
+                const todayMeetings = this.state.meetings.filter(m => m.date === todayStr);
+
+                todayMeetings.forEach(meeting => {
+                    // Parse meeting start time
+                    const [startHour, startMinute] = meeting.startTime.split(':').map(Number);
+                    const meetingTimeInMinutes = startHour * 60 + startMinute;
+                    const minutesUntilMeeting = meetingTimeInMinutes - currentTimeInMinutes;
+
+                    // Notify if meeting is within 15 minutes and hasn't been notified yet
+                    if (minutesUntilMeeting > 0 && minutesUntilMeeting <= 15) {
+                        const notificationKey = `${meeting.id}_15min`;
+                        if (!this.notifiedMeetings.has(notificationKey)) {
+                            this.notifiedMeetings.add(notificationKey);
+                            this.showMeetingReminder(meeting, minutesUntilMeeting);
+                        }
+                    }
+
+                    // Notify if meeting is within 5 minutes (urgent)
+                    if (minutesUntilMeeting > 0 && minutesUntilMeeting <= 5) {
+                        const notificationKey = `${meeting.id}_5min`;
+                        if (!this.notifiedMeetings.has(notificationKey)) {
+                            this.notifiedMeetings.add(notificationKey);
+                            this.showMeetingReminder(meeting, minutesUntilMeeting, true);
+                        }
+                    }
+
+                    // Notify if meeting is starting now
+                    if (minutesUntilMeeting === 0) {
+                        const notificationKey = `${meeting.id}_now`;
+                        if (!this.notifiedMeetings.has(notificationKey)) {
+                            this.notifiedMeetings.add(notificationKey);
+                            this.showMeetingReminder(meeting, 0, true);
+                        }
+                    }
+                });
+            }
+
+            showMeetingReminder(meeting, minutesUntil, isUrgent = false) {
+                const serviceType = meeting.serviceType === 'VOICE' ? 'Voice' : 'SMS';
+
+                let title, body;
+                if (minutesUntil === 0) {
+                    title = `🔔 Meeting Starting Now!`;
+                    body = `${serviceType} meeting with ${meeting.company} is starting`;
+                } else if (minutesUntil <= 5) {
+                    title = `⚠️ Meeting in ${minutesUntil} minute${minutesUntil > 1 ? 's' : ''}`;
+                    body = `${serviceType} meeting with ${meeting.company}`;
+                } else {
+                    title = `📅 Upcoming Meeting`;
+                    body = `${serviceType} meeting with ${meeting.company} in ${minutesUntil} minutes`;
+                }
+
+                // Show browser notification
+                if ('Notification' in window && Notification.permission === 'granted') {
+                    const notification = new Notification(title, {
+                        body: body,
+                        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">📅</text></svg>',
+                        tag: meeting.id,
+                        requireInteraction: isUrgent
+                    });
+
+                    notification.onclick = () => {
+                        window.focus();
+                        // Switch to meetings tab and open meeting details
+                        this.switchTab('meetings');
+                        this.openMeetingModal(meeting.id);
+                        notification.close();
+                    };
+                }
+
+                // Show in-app notification
+                this.showToast(body, isUrgent ? 'warning' : 'info', 5000);
+
+                // Add visual indicator to the meeting in calendar
+                this.highlightUpcomingMeeting(meeting.id);
+            }
+
+            highlightUpcomingMeeting(meetingId) {
+                // Add visual indicator to meeting blocks
+                const meetingBlocks = document.querySelectorAll('.meeting-block');
+                meetingBlocks.forEach(block => {
+                    if (block.onclick && block.onclick.toString().includes(meetingId)) {
+                        block.style.boxShadow = '0 0 0 3px #f59e0b, 0 4px 12px rgba(245, 158, 11, 0.4)';
+                        block.style.animation = 'pulse-glow 2s infinite';
+                    }
+                });
             }
 
             setupClickOutside() {
@@ -5474,7 +5593,7 @@
                 }).join('');
             }
 
-            showToast(msg, type = 'success') {
+            showToast(msg, type = 'success', customDuration = null) {
                 const toast = document.getElementById('toast');
                 const msgEl = document.getElementById('toast-msg');
                 const icon = toast.querySelector('i');
@@ -5485,6 +5604,8 @@
                     icon.className = 'ph-fill ph-warning-circle text-red-400 text-lg';
                 } else if (type === 'warning') {
                     icon.className = 'ph-fill ph-bell-ringing text-amber-400 text-lg';
+                } else if (type === 'info') {
+                    icon.className = 'ph-fill ph-info text-blue-400 text-lg';
                 } else {
                     icon.className = 'ph-fill ph-check-circle text-green-400 text-lg';
                 }
@@ -5492,7 +5613,7 @@
                 toast.classList.remove('-translate-y-20');
                 toast.classList.add('translate-y-2');
 
-                const duration = type === 'warning' ? 4000 : 2000;
+                const duration = customDuration || (type === 'warning' ? 4000 : 2000);
                 setTimeout(() => {
                     toast.classList.remove('translate-y-2');
                     toast.classList.add('-translate-y-20');
@@ -5583,6 +5704,14 @@
                 const loader = document.getElementById('global-loader');
                 if (loader) {
                     loader.style.display = 'none';
+                }
+            }
+
+            // Cleanup reminders
+            stopMeetingReminders() {
+                if (this.reminderInterval) {
+                    clearInterval(this.reminderInterval);
+                    this.reminderInterval = null;
                 }
             }
         }
