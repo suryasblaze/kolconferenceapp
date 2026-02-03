@@ -1757,6 +1757,10 @@
                                 <i class="ph ph-export text-[#249E94]"></i>
                                 Export Data
                             </button>
+                            <button onclick="app.exportAllRegions()">
+                                <i class="ph ph-database text-blue-600"></i>
+                                Export All Regions
+                            </button>
                             <hr>
                             <button onclick="app.addRow()">
                                 <i class="ph ph-plus-circle text-slate-500"></i>
@@ -2039,12 +2043,10 @@
         const regions = [
             { id: 'APAC', label: 'Asia Pacific' },
             { id: 'EUR', label: 'Europe' },
-            { id: 'ME', label: 'Middle East' },
             { id: 'AFR', label: 'Africa' },
             { id: 'MENA', label: 'MENA' },
             { id: 'EURASIA', label: 'EURASIA' },
             { id: 'LATAM', label: 'LatAm' },
-            { id: 'NA', label: 'N. America' },
         ];
 
         // Countries by Region
@@ -3090,6 +3092,72 @@
                 const filename = `${type}_${list}_export.xlsx`;
                 XLSX.writeFile(wb, filename);
                 this.showToast('Data exported!');
+            }
+
+            // Export all regions to Excel
+            exportAllRegions() {
+                this.toggleActionMenu();
+
+                if (!this.state.serviceType || !this.state.listType) {
+                    this.showToast('Select service type and list first', 'error');
+                    return;
+                }
+
+                const wb = XLSX.utils.book_new();
+                const serviceType = this.state.serviceType || 'SMS';
+                const listType = this.state.listType || 'Target';
+                const headers = this.getHeaders();
+                const columns = this.getColumns();
+                let hasData = false;
+
+                // Export data for each region
+                regions.forEach(region => {
+                    const key = `${this.state.serviceType}_${this.state.listType}_${region.id}`;
+                    const data = this.state.rates[key] || [];
+
+                    if (data.length > 0) {
+                        hasData = true;
+
+                        // Build configuration header
+                        const configPath = `${serviceType} > ${listType.charAt(0).toUpperCase() + listType.slice(1)} > ${region.id}`;
+
+                        // Convert data to array format with config header
+                        const exportData = [
+                            ['Rate Configuration'],
+                            [configPath],
+                            [''],  // Empty row for spacing
+                            headers
+                        ];
+                        data.forEach(row => {
+                            exportData.push(columns.map(col => row[col] || ''));
+                        });
+
+                        const ws = XLSX.utils.aoa_to_sheet(exportData);
+
+                        // Style column widths
+                        ws['!cols'] = headers.map(() => ({ wch: 12 }));
+
+                        // Merge cells for header
+                        ws['!merges'] = [
+                            { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+                            { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } }
+                        ];
+
+                        // Add sheet with region name
+                        XLSX.utils.book_append_sheet(wb, ws, `${region.id} - ${region.label}`);
+                    }
+                });
+
+                if (!hasData) {
+                    this.showToast('No data to export across all regions', 'error');
+                    return;
+                }
+
+                const type = serviceType.toLowerCase();
+                const list = listType.toLowerCase();
+                const filename = `${type}_${list}_all_regions_export.xlsx`;
+                XLSX.writeFile(wb, filename);
+                this.showToast('All regions exported!');
             }
 
             // Import Modal
