@@ -3113,7 +3113,7 @@
                 // Export data for each region
                 regions.forEach(region => {
                     const key = `${this.state.serviceType}_${this.state.listType}_${region.id}`;
-                    const data = this.state.rates[key] || [];
+                    const data = this.state.data[key] || [];
 
                     if (data.length > 0) {
                         hasData = true;
