@@ -105,7 +105,7 @@
             border: none;
             background: transparent;
             font-size: 13px;
-            color: #0C7779;
+            color: #1e293b;
         }
         .data-table input:focus {
             outline: none;
@@ -1406,6 +1406,11 @@
                     <input type="text" id="schedule-subject" placeholder="e.g., Rate Discussion, Contract Review">
                 </div>
 
+                <div class="form-group">
+                    <label>Scheduled By (Your Email) *</label>
+                    <input type="email" id="schedule-by-email" placeholder="your.email@example.com" required>
+                </div>
+
                 <div class="flex gap-3 mt-6">
                     <button onclick="app.closeScheduleModal()" class="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-semibold text-sm">
                         Cancel
@@ -1439,6 +1444,7 @@
                             <p class="font-bold text-slate-800" id="meeting-company-display">Company Name</p>
                             <p class="text-xs text-[#3BC1A8] font-medium" id="meeting-subject-display"></p>
                             <p class="text-xs text-slate-500" id="meeting-time-display">9:00 AM - 10:00 AM</p>
+                            <p class="text-xs text-blue-600" id="meeting-created-by-display"></p>
                         </div>
                         <span class="meeting-status scheduled" id="meeting-status-badge">Scheduled</span>
                     </div>
@@ -1931,6 +1937,7 @@
                         <input type="text" id="new-company-delegate" placeholder="Delegate / Region">
                         <input type="email" id="new-company-email" placeholder="Email">
                         <input type="tel" id="new-company-phone" placeholder="Phone">
+                        <input type="email" id="new-company-created-by" placeholder="Created By (Your Email) *" required>
                         <div class="flex gap-2 mt-2">
                             <button onclick="app.toggleAddCompanyForm()" class="flex-1 py-2 bg-slate-100 text-slate-600 rounded-lg font-semibold text-sm">Cancel</button>
                             <button onclick="app.saveNewCompany()" class="flex-1 py-2 bg-[#3BC1A8] text-white rounded-lg font-semibold text-sm">Save</button>
@@ -2347,7 +2354,7 @@
         const SMS_HEADERS = ['Designation', 'Product', 'Network', 'Rate', 'Traffic', 'Display', 'TPS', 'CAP', 'HOP'];
 
         // Voice Columns
-        const VOICE_COLUMNS = ['destination', 'product', 'breakout', 'rate', 'billing', 'display', 'acd', 'asr', 'hop'];
+        const VOICE_COLUMNS = ['destination', 'product', 'breakout', 'rate', 'billingIncrement', 'display', 'acd', 'asr', 'hop'];
         const VOICE_HEADERS = ['Destination', 'Product', 'Breakout', 'Rate', 'Billing Increment', 'Display', 'ACD', 'ASR', 'HOP'];
 
         // Default dropdown options for SMS
@@ -2378,7 +2385,11 @@
                     ourOffersServiceType: 'SMS', // SMS or VOICE - for our offers tab
                     companies: [], // Array of company objects with serviceType
                     meetings: [], // Array of meeting objects with serviceType
-                    currentMeetingDate: new Date().toISOString().split('T')[0]
+                    currentMeetingDate: new Date().toISOString().split('T')[0],
+                    // Track deleted IDs for targeted deletion (not delete-all)
+                    deletedRateIds: [],
+                    deletedCompanyIds: [],
+                    deletedMeetingIds: []
                 };
                 this.pendingImportData = null;
                 this.pendingMeetingFiles = [];
@@ -2415,7 +2426,10 @@
                             }
 
                             // Reconstruct rate object based on service type
-                            const rateObj = {};
+                            // IMPORTANT: Preserve ID for UPSERT operations
+                            const rateObj = {
+                                id: rate.id  // Preserve database ID
+                            };
 
                             if (rate.service_type === 'SMS') {
                                 rateObj.designation = rate.designation || '';
@@ -2459,7 +2473,8 @@
                             email: c.email,
                             phone: c.phone,
                             skype: c.skype,
-                            whatsapp: c.whatsapp
+                            whatsapp: c.whatsapp,
+                            createdBy: c.created_by
                         }));
                     }
 
@@ -2486,6 +2501,7 @@
                             phone: m.phone,
                             skype: m.skype,
                             whatsapp: m.whatsapp,
+                            scheduledBy: m.scheduled_by,
                             strongRegion: m.strong_region,
                             lookingFor: m.looking_for,
                             activeStatus: m.active_status,
@@ -2540,10 +2556,21 @@
 
             async saveRatesToSupabase() {
                 try {
-                    // Delete all existing rates (simple approach for now)
-                    await supabaseClient.from('rates').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                    // Delete only specifically deleted rates (not all)
+                    if (this.state.deletedRateIds && this.state.deletedRateIds.length > 0) {
+                        const { error: deleteError } = await supabaseClient
+                            .from('rates')
+                            .delete()
+                            .in('id', this.state.deletedRateIds);
 
-                    // Insert new rates - each rate row is a separate database record
+                        if (deleteError) {
+                            console.error('Error deleting rates:', deleteError);
+                        }
+                        // Clear deleted IDs after successful deletion
+                        this.state.deletedRateIds = [];
+                    }
+
+                    // UPSERT rates - each rate row is a separate database record
                     const rateRecords = [];
 
                     for (const [key, rows] of Object.entries(this.state.data || {})) {
@@ -2551,11 +2578,21 @@
 
                         if (rows && Array.isArray(rows) && rows.length > 0) {
                             rows.forEach(row => {
+                                // Ensure row has an ID for UPSERT
+                                const rateId = row.id || ('rate_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
+
                                 const record = {
+                                    id: rateId,
                                     service_type: serviceType,
                                     list_type: listType,
-                                    region: region
+                                    region: region,
+                                    updated_at: new Date().toISOString()
                                 };
+
+                                // Update the row's ID in memory if it was just generated
+                                if (!row.id) {
+                                    row.id = rateId;
+                                }
 
                                 // Add fields based on service type
                                 if (serviceType === 'SMS') {
@@ -2586,12 +2623,14 @@
                     }
 
                     if (rateRecords.length > 0) {
-                        // Insert in batches of 100 to avoid payload size limits
+                        // UPSERT in batches of 100 to avoid payload size limits
                         for (let i = 0; i < rateRecords.length; i += 100) {
                             const batch = rateRecords.slice(i, i + 100);
-                            const { error } = await supabaseClient.from('rates').insert(batch);
+                            const { error } = await supabaseClient
+                                .from('rates')
+                                .upsert(batch, { onConflict: 'id' });
                             if (error) {
-                                console.error('Error inserting batch:', error);
+                                console.error('Error upserting batch:', error);
                             }
                         }
                     }
@@ -2603,10 +2642,21 @@
 
             async saveCompaniesToSupabase() {
                 try {
-                    // Delete all existing companies
-                    await supabaseClient.from('companies').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                    // Delete only specifically deleted companies (not all)
+                    if (this.state.deletedCompanyIds && this.state.deletedCompanyIds.length > 0) {
+                        const { error: deleteError } = await supabaseClient
+                            .from('companies')
+                            .delete()
+                            .in('id', this.state.deletedCompanyIds);
 
-                    // Insert new companies
+                        if (deleteError) {
+                            console.error('Error deleting companies:', deleteError);
+                        }
+                        // Clear deleted IDs after successful deletion
+                        this.state.deletedCompanyIds = [];
+                    }
+
+                    // UPSERT companies
                     const companyRecords = this.state.companies.map(c => ({
                         id: c.id,
                         company_name: c.company,
@@ -2615,11 +2665,18 @@
                         email: c.email,
                         phone: c.phone,
                         skype: c.skype,
-                        whatsapp: c.whatsapp
+                        whatsapp: c.whatsapp,
+                        created_by: c.createdBy,
+                        updated_at: new Date().toISOString()
                     }));
 
                     if (companyRecords.length > 0) {
-                        await supabaseClient.from('companies').insert(companyRecords);
+                        const { error } = await supabaseClient
+                            .from('companies')
+                            .upsert(companyRecords, { onConflict: 'id' });
+                        if (error) {
+                            console.error('Error upserting companies:', error);
+                        }
                     }
                 } catch (error) {
                     console.error('Error saving companies:', error);
@@ -2628,13 +2685,36 @@
 
             async saveMeetingsToSupabase() {
                 try {
-                    // Delete all existing meetings
-                    await supabaseClient.from('meetings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                    // Delete only specifically deleted meetings (not all)
+                    if (this.state.deletedMeetingIds && this.state.deletedMeetingIds.length > 0) {
+                        // First delete meeting files for deleted meetings
+                        const { error: fileDeleteError } = await supabaseClient
+                            .from('meeting_files')
+                            .delete()
+                            .in('meeting_id', this.state.deletedMeetingIds);
 
-                    // Insert new meetings
+                        if (fileDeleteError) {
+                            console.error('Error deleting meeting files:', fileDeleteError);
+                        }
+
+                        // Then delete the meetings
+                        const { error: deleteError } = await supabaseClient
+                            .from('meetings')
+                            .delete()
+                            .in('id', this.state.deletedMeetingIds);
+
+                        if (deleteError) {
+                            console.error('Error deleting meetings:', deleteError);
+                        }
+                        // Clear deleted IDs after successful deletion
+                        this.state.deletedMeetingIds = [];
+                    }
+
+                    // UPSERT meetings
                     for (const meeting of this.state.meetings) {
                         const meetingRecord = {
                             id: meeting.id,
+                            company_id: meeting.companyId,
                             company: meeting.company,
                             date: meeting.date,
                             start_time: meeting.startTime,
@@ -2645,6 +2725,7 @@
                             phone: meeting.phone,
                             skype: meeting.skype,
                             whatsapp: meeting.whatsapp,
+                            scheduled_by: meeting.scheduledBy,
                             strong_region: meeting.strongRegion,
                             looking_for: meeting.lookingFor,
                             active_status: meeting.activeStatus,
@@ -2654,12 +2735,25 @@
                             route_issue: meeting.routeIssue,
                             notes: meeting.notes,
                             client_offers: meeting.clientOffers || [],
-                            linked_rates: meeting.linkedRates || []
+                            linked_rates: meeting.linkedRates || [],
+                            updated_at: new Date().toISOString()
                         };
 
-                        await supabaseClient.from('meetings').insert([meetingRecord]);
+                        const { error } = await supabaseClient
+                            .from('meetings')
+                            .upsert([meetingRecord], { onConflict: 'id' });
 
-                        // Save meeting files
+                        if (error) {
+                            console.error('Error upserting meeting:', error);
+                        }
+
+                        // Handle meeting files - delete existing and re-insert for this meeting
+                        // This is necessary because files may have been added/removed
+                        await supabaseClient
+                            .from('meeting_files')
+                            .delete()
+                            .eq('meeting_id', meeting.id);
+
                         if (meeting.files && meeting.files.length > 0) {
                             console.log(`📎 Saving ${meeting.files.length} files for meeting "${meeting.company}"`);
                             const fileRecords = meeting.files.map(f => ({
@@ -2685,23 +2779,47 @@
 
             async saveCustomOptionsToSupabase() {
                 try {
-                    // Delete all existing custom options
-                    await supabaseClient.from('custom_options').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                    // Fetch existing custom options from database
+                    const { data: existingOptions } = await supabaseClient
+                        .from('custom_options')
+                        .select('*');
 
-                    // Insert new custom options
-                    const optionRecords = [];
-
+                    // Build list of current options
+                    const currentOptions = [];
                     ['product', 'network', 'traffic'].forEach(type => {
                         (this.state.customOptions[type] || []).forEach(value => {
-                            optionRecords.push({
-                                option_type: type,
-                                option_value: value
-                            });
+                            currentOptions.push({ option_type: type, option_value: value });
                         });
                     });
 
-                    if (optionRecords.length > 0) {
-                        await supabaseClient.from('custom_options').insert(optionRecords);
+                    // Find options to delete (exist in DB but not in current state)
+                    const optionsToDelete = (existingOptions || []).filter(existing =>
+                        !currentOptions.some(current =>
+                            current.option_type === existing.option_type &&
+                            current.option_value === existing.option_value
+                        )
+                    );
+
+                    // Delete removed options
+                    if (optionsToDelete.length > 0) {
+                        const idsToDelete = optionsToDelete.map(o => o.id);
+                        await supabaseClient
+                            .from('custom_options')
+                            .delete()
+                            .in('id', idsToDelete);
+                    }
+
+                    // Find options to insert (exist in current state but not in DB)
+                    const optionsToInsert = currentOptions.filter(current =>
+                        !(existingOptions || []).some(existing =>
+                            existing.option_type === current.option_type &&
+                            existing.option_value === current.option_value
+                        )
+                    );
+
+                    // Insert new options
+                    if (optionsToInsert.length > 0) {
+                        await supabaseClient.from('custom_options').insert(optionsToInsert);
                     }
                 } catch (error) {
                     console.error('Error saving custom options:', error);
@@ -3459,7 +3577,10 @@
                         for (let i = 1; i < jsonData.length; i++) {
                             const row = jsonData[i];
                             if (row && row.length > 0 && row.some(cell => cell !== '' && cell !== undefined)) {
-                                const rowData = {};
+                                const rowData = {
+                                    // Generate unique ID for each imported row
+                                    id: 'rate_' + Date.now() + '_' + i + '_' + Math.random().toString(36).substr(2, 9)
+                                };
                                 columns.forEach((col, idx) => {
                                     rowData[col] = row[idx] !== undefined ? String(row[idx]) : '';
                                 });
@@ -3519,6 +3640,14 @@
                 this.toggleActionMenu();
 
                 if (confirm('Clear all data for current selection?')) {
+                    // Track all IDs being deleted
+                    const currentData = this.getCurrentData();
+                    currentData.forEach(row => {
+                        if (row && row.id) {
+                            this.state.deletedRateIds.push(row.id);
+                        }
+                    });
+
                     this.setCurrentData([]);
                     this.saveState();
                     this.renderTableRows();
@@ -3889,7 +4018,9 @@
             addRow(render = true) {
                 const data = this.getCurrentData();
                 const columns = this.getColumns();
-                const newRow = {};
+                const newRow = {
+                    id: 'rate_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)  // Generate unique ID
+                };
                 columns.forEach(col => newRow[col] = '');
                 data.push(newRow);
                 this.setCurrentData(data);
@@ -3916,6 +4047,11 @@
             deleteRow(index) {
                 const data = this.getCurrentData();
                 if (data.length > 1) {
+                    // Track deleted ID for targeted deletion in database
+                    const deletedRow = data[index];
+                    if (deletedRow && deletedRow.id) {
+                        this.state.deletedRateIds.push(deletedRow.id);
+                    }
                     data.splice(index, 1);
                     this.setCurrentData(data);
                     this.renderTableRows();
@@ -4426,7 +4562,13 @@
                     isStartingSoon = diffMinutes > 0 && diffMinutes <= 15;
                 }
 
-                // Determine CSS class
+                // Determine CSS class and colors based on service type
+                const isVoice = (meeting.serviceType || 'SMS') === 'VOICE';
+                const bgColor = isVoice ? '#d1fae5' : '#dbeafe';  // Green for VOICE, Blue for SMS
+                const borderColor = isVoice ? '#10b981' : '#3b82f6';
+                const typeIcon = isVoice ? 'ph-phone-call' : 'ph-chat-text';
+                const typeLabel = isVoice ? 'VOICE' : 'SMS';
+
                 let blockClass = 'meeting-block';
                 if (isCompleted) blockClass += ' completed';
                 else if (isStartingSoon) blockClass += ' starting-soon';
@@ -4434,13 +4576,19 @@
 
                 return `
                     <div class="${blockClass}"
-                         style="top: ${topPx}px; height: ${heightPx}px; width: calc(${widthPercent}% - 16px); left: calc(${leftPercent}% + 8px); padding-right: 8px;"
+                         style="top: ${topPx}px; height: ${heightPx}px; width: calc(${widthPercent}% - 16px); left: calc(${leftPercent}% + 8px); padding-right: 8px; background: ${bgColor}; border-left: 3px solid ${borderColor};"
                          onclick="event.stopPropagation(); app.openMeetingModal('${meeting.id}')">
-                        <div class="company">${this.escapeHtml(meeting.company)}</div>
+                        <div class="company" style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                            <span style="font-size: 8px; padding: 1px 4px; background: ${borderColor}; color: white; border-radius: 3px; white-space: nowrap;">
+                                <i class="ph ${typeIcon}"></i> ${typeLabel}
+                            </span>
+                            <span>${this.escapeHtml(meeting.company)}</span>
+                        </div>
                         <div class="time-range">
                             <i class="ph ph-clock"></i>
                             ${this.formatTimeDisplay(meeting.startTime)} - ${this.formatTimeDisplay(meeting.endTime || this.addHourToTime(meeting.startTime))}
                         </div>
+                        ${meeting.scheduledBy ? `<div class="meta-icons" style="color: ${borderColor};"><i class="ph ph-user-circle"></i> ${this.escapeHtml(meeting.scheduledBy)}</div>` : ''}
                         <div class="meta-icons">
                             ${hasFiles ? `<span><i class="ph ph-paperclip"></i> ${meeting.files.length}</span>` : ''}
                             ${hasLinked ? `<span><i class="ph ph-link"></i> ${meeting.linkedRates.length}</span>` : ''}
@@ -4494,25 +4642,37 @@
                 const hasNotes = meeting.notes && meeting.notes.trim().length > 0;
                 const hasFiles = meeting.files && meeting.files.length > 0;
                 const hasLinked = meeting.linkedRates && meeting.linkedRates.length > 0;
+                const isVoice = (meeting.serviceType || 'SMS') === 'VOICE';
+                const bgColor = isVoice ? '#d1fae5' : '#dbeafe';  // Green for VOICE, Blue for SMS
+                const borderColor = isVoice ? '#10b981' : '#3b82f6';
+                const typeIcon = isVoice ? 'ph-phone-call' : 'ph-chat-text';
+                const typeLabel = isVoice ? 'VOICE' : 'SMS';
 
                 return `
-                    <div class="meeting-card ${hasNotes ? 'has-notes' : ''}" onclick="event.stopPropagation(); app.openMeetingModal('${meeting.id}')">
-                        <div class="company">${this.escapeHtml(meeting.company)}</div>
+                    <div class="meeting-card ${hasNotes ? 'has-notes' : ''}"
+                         style="background: ${bgColor}; border-left: 3px solid ${borderColor};"
+                         onclick="event.stopPropagation(); app.openMeetingModal('${meeting.id}')">
+                        <div class="company" style="display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 9px; padding: 1px 4px; background: ${borderColor}; color: white; border-radius: 3px;">
+                                <i class="ph ${typeIcon}"></i> ${typeLabel}
+                            </span>
+                            ${this.escapeHtml(meeting.company)}
+                        </div>
                         ${meeting.subject ? `<div class="subject">${this.escapeHtml(meeting.subject)}</div>` : ''}
                         <div class="meta">
                             <span><i class="ph ph-clock"></i> ${meeting.startTime}${meeting.endTime ? ' - ' + meeting.endTime : ''}</span>
                             ${hasFiles ? `<span><i class="ph ph-paperclip"></i> ${meeting.files.length}</span>` : ''}
                             ${hasLinked ? `<span><i class="ph ph-link"></i> ${meeting.linkedRates.length}</span>` : ''}
                         </div>
+                        ${meeting.scheduledBy ? `<div class="meta" style="color: ${borderColor}; margin-top: 2px;"><span><i class="ph ph-user-circle"></i> ${this.escapeHtml(meeting.scheduledBy)}</span></div>` : ''}
                     </div>
                 `;
             }
 
             getMeetingsForDate(dateStr) {
-                const serviceType = this.state.meetingsServiceType || 'SMS';
-                return this.state.meetings.filter(m =>
-                    m.date === dateStr && (m.serviceType || 'SMS') === serviceType
-                ).sort((a, b) => a.startTime.localeCompare(b.startTime));
+                // Show ALL meetings (both SMS and VOICE) on calendar
+                return this.state.meetings.filter(m => m.date === dateStr)
+                    .sort((a, b) => a.startTime.localeCompare(b.startTime));
             }
 
             updateMeetingCount() {
@@ -4998,9 +5158,10 @@
                         <div class="company-avatar">${initials}</div>
                         <div class="company-info">
                             <div class="company-name">${this.escapeHtml(company.company)}</div>
-                            ${company.delegate ? `<div class="company-contact"><i class="ph ph-map-pin"></i> ${this.escapeHtml(company.delegate)}</div>` : ''}
+                            ${company.contactPerson ? `<div class="company-contact"><i class="ph ph-map-pin"></i> ${this.escapeHtml(company.contactPerson)}</div>` : ''}
                             ${company.email ? `<div class="company-contact"><i class="ph ph-envelope"></i> ${this.escapeHtml(company.email)}</div>` : ''}
                             ${company.phone ? `<div class="company-contact"><i class="ph ph-phone"></i> ${this.escapeHtml(company.phone)}</div>` : ''}
+                            ${company.createdBy ? `<div class="company-contact text-blue-600"><i class="ph ph-user-circle"></i> Added by: ${this.escapeHtml(company.createdBy)}</div>` : ''}
                             ${hasMeeting ? `<div class="company-contact text-emerald-600"><i class="ph ph-calendar-check"></i> Meeting scheduled</div>` : '<div class="company-contact text-slate-400"><i class="ph ph-calendar-x"></i> No meeting</div>'}
                         </div>
                         <div class="company-actions">
@@ -5042,6 +5203,7 @@
                     document.getElementById('new-company-delegate').value = '';
                     document.getElementById('new-company-email').value = '';
                     document.getElementById('new-company-phone').value = '';
+                    document.getElementById('new-company-created-by').value = '';
                 }
             }
 
@@ -5050,9 +5212,21 @@
                 const delegate = document.getElementById('new-company-delegate').value.trim();
                 const email = document.getElementById('new-company-email').value.trim();
                 const phone = document.getElementById('new-company-phone').value.trim();
+                const createdBy = document.getElementById('new-company-created-by').value.trim();
 
                 if (!name) {
                     this.showToast('Company name is required', 'error');
+                    return;
+                }
+
+                if (!createdBy) {
+                    this.showToast('Created By email is required', 'error');
+                    return;
+                }
+
+                // Basic email validation
+                if (!createdBy.includes('@')) {
+                    this.showToast('Please enter a valid email', 'error');
                     return;
                 }
 
@@ -5065,6 +5239,7 @@
                     skype: null,
                     whatsapp: null,
                     serviceType: this.state.companiesServiceType || 'SMS',
+                    createdBy: createdBy,  // Who created this company
                     createdAt: new Date().toISOString()
                 };
 
@@ -5081,6 +5256,15 @@
                 if (!company) return;
 
                 if (confirm(`Delete ${company.company}? This will also delete all their scheduled meetings.`)) {
+                    // Track deleted company ID
+                    this.state.deletedCompanyIds.push(companyId);
+
+                    // Track deleted meeting IDs for this company
+                    const meetingsToDelete = this.state.meetings.filter(m => m.companyId === companyId);
+                    meetingsToDelete.forEach(m => {
+                        if (m.id) this.state.deletedMeetingIds.push(m.id);
+                    });
+
                     this.state.companies = this.state.companies.filter(c => c.id !== companyId);
                     this.state.meetings = this.state.meetings.filter(m => m.companyId !== companyId);
                     this.saveState();
@@ -5115,6 +5299,8 @@
 
             closeScheduleModal() {
                 document.getElementById('schedule-modal').classList.remove('show');
+                document.getElementById('schedule-by-email').value = '';
+                document.getElementById('schedule-subject').value = '';
                 this.schedulingCompanyId = null;
             }
 
@@ -5131,6 +5317,7 @@
                 const startTime = document.getElementById('schedule-start').value;
                 const endTime = document.getElementById('schedule-end').value;
                 const subject = document.getElementById('schedule-subject').value.trim();
+                const scheduledBy = document.getElementById('schedule-by-email').value.trim();
 
                 if (!date) {
                     this.showToast('Please select a date', 'error');
@@ -5139,6 +5326,16 @@
 
                 if (!startTime) {
                     this.showToast('Please select start time', 'error');
+                    return;
+                }
+
+                if (!scheduledBy) {
+                    this.showToast('Please enter your email', 'error');
+                    return;
+                }
+
+                if (!scheduledBy.includes('@')) {
+                    this.showToast('Please enter a valid email', 'error');
                     return;
                 }
 
@@ -5170,6 +5367,7 @@
                     startTime,
                     endTime,
                     subject,
+                    scheduledBy: scheduledBy,  // Who scheduled this meeting
                     notes: '',
                     strongRegion: '',  // Can be filled later in meeting details
                     lookingFor: '',
@@ -5240,6 +5438,19 @@
                 const endTime = meeting.endTime ? this.formatTimeDisplay(meeting.endTime) : '';
                 const timeStr = endTime ? `${startTime} - ${endTime}` : startTime;
                 document.getElementById('meeting-time-display').textContent = timeStr;
+
+                // Show who created the company and who scheduled the meeting
+                const company = this.state.companies.find(c => c.id === meeting.companyId);
+                const createdByDisplay = document.getElementById('meeting-created-by-display');
+                let createdByText = '';
+                if (company && company.createdBy) {
+                    createdByText += `<i class="ph ph-buildings"></i> Company added by: ${this.escapeHtml(company.createdBy)}`;
+                }
+                if (meeting.scheduledBy) {
+                    if (createdByText) createdByText += '<br>';
+                    createdByText += `<i class="ph ph-calendar-plus"></i> Scheduled by: ${this.escapeHtml(meeting.scheduledBy)}`;
+                }
+                createdByDisplay.innerHTML = createdByText;
 
                 // Set status badge and action button
                 const statusBadge = document.getElementById('meeting-status-badge');
@@ -5706,6 +5917,8 @@
                 if (!this.editingMeetingId) return;
 
                 if (confirm('Delete this meeting?')) {
+                    // Track deleted meeting ID
+                    this.state.deletedMeetingIds.push(this.editingMeetingId);
                     this.state.meetings = this.state.meetings.filter(m => m.id !== this.editingMeetingId);
                     this.saveState();
                     this.closeMeetingModal();
