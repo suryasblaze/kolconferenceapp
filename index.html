@@ -404,7 +404,7 @@
             box-shadow: 0 2px 6px rgba(59, 130, 246, 0.15);
             border: 1px solid #93c5fd;
             transition: transform 0.15s, box-shadow 0.15s;
-            min-height: 40px;
+            min-height: 75px;
         }
         .meeting-block:active {
             transform: scale(0.98);
@@ -4538,11 +4538,11 @@
                     endM = startM;
                 }
 
-                // Calculate position and height
+                // Calculate position and height (increased minimum to fit scheduledBy email)
                 const startMinutes = (startH - startHour) * 60 + startM;
                 const endMinutes = (endH - startHour) * 60 + endM;
                 const topPx = (startMinutes / 60) * hourHeight;
-                const heightPx = Math.max(((endMinutes - startMinutes) / 60) * hourHeight, 40);
+                const heightPx = Math.max(((endMinutes - startMinutes) / 60) * hourHeight, 75);
 
                 // Calculate width and left position for overlapping meetings
                 const gapPercent = 0.5; // Small gap between meetings
@@ -4590,8 +4590,8 @@
                             <i class="ph ph-clock"></i>
                             ${this.formatTimeDisplay(meeting.startTime)} - ${this.formatTimeDisplay(meeting.endTime || this.addHourToTime(meeting.startTime))}
                         </div>
+                        ${meeting.scheduledBy ? `<div style="font-size: 9px; color: ${borderColor}; font-weight: 600; margin-top: 2px; display: flex; align-items: center; gap: 3px;"><i class="ph ph-user-circle"></i> <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(meeting.scheduledBy)}</span></div>` : ''}
                         <div class="meta-icons" style="flex-wrap: wrap;">
-                            ${meeting.scheduledBy ? `<span style="color: ${borderColor}; font-weight: 600;"><i class="ph ph-user-circle"></i> ${this.escapeHtml(meeting.scheduledBy)}</span>` : ''}
                             ${hasFiles ? `<span><i class="ph ph-paperclip"></i> ${meeting.files.length}</span>` : ''}
                             ${hasLinked ? `<span><i class="ph ph-link"></i> ${meeting.linkedRates.length}</span>` : ''}
                             ${isStartingSoon ? `<span><i class="ph ph-bell-ringing"></i> Soon!</span>` : ''}
