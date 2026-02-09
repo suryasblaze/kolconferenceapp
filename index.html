@@ -4334,13 +4334,15 @@
                 const lastDay = new Date(this.calendarViewYear, this.calendarViewMonth + 1, 0);
                 const startDay = firstDay.getDay(); // 0 = Sunday
 
-                // Get dates with meetings for this month
+                // Get dates with meetings for this month (filtered by current service type)
+                const currentServiceType = this.state.meetingsServiceType || 'SMS';
                 const meetingDates = new Set(
                     this.state.meetings
                         .filter(m => {
                             const d = new Date(m.date);
                             return d.getMonth() === this.calendarViewMonth &&
-                                   d.getFullYear() === this.calendarViewYear;
+                                   d.getFullYear() === this.calendarViewYear &&
+                                   m.serviceType === currentServiceType;
                         })
                         .map(m => m.date)
                 );
@@ -4352,7 +4354,7 @@
                 for (let i = startDay - 1; i >= 0; i--) {
                     const day = prevMonth.getDate() - i;
                     const dateStr = this.formatDateStr(this.calendarViewYear, this.calendarViewMonth - 1, day);
-                    const hasMeeting = this.state.meetings.some(m => m.date === dateStr);
+                    const hasMeeting = this.state.meetings.some(m => m.date === dateStr && m.serviceType === currentServiceType);
                     html += `<button class="calendar-day other-month ${hasMeeting ? 'has-meeting' : ''}"
                                     onclick="app.selectCalendarDate('${dateStr}')">${day}</button>`;
                 }
@@ -4380,7 +4382,7 @@
                 const remaining = totalCells - (startDay + lastDay.getDate());
                 for (let day = 1; day <= remaining; day++) {
                     const dateStr = this.formatDateStr(this.calendarViewYear, this.calendarViewMonth + 1, day);
-                    const hasMeeting = this.state.meetings.some(m => m.date === dateStr);
+                    const hasMeeting = this.state.meetings.some(m => m.date === dateStr && m.serviceType === currentServiceType);
                     html += `<button class="calendar-day other-month ${hasMeeting ? 'has-meeting' : ''}"
                                     onclick="app.selectCalendarDate('${dateStr}')">${day}</button>`;
                 }
@@ -4588,8 +4590,8 @@
                             <i class="ph ph-clock"></i>
                             ${this.formatTimeDisplay(meeting.startTime)} - ${this.formatTimeDisplay(meeting.endTime || this.addHourToTime(meeting.startTime))}
                         </div>
-                        ${meeting.scheduledBy ? `<div class="meta-icons" style="color: ${borderColor};"><i class="ph ph-user-circle"></i> ${this.escapeHtml(meeting.scheduledBy)}</div>` : ''}
-                        <div class="meta-icons">
+                        <div class="meta-icons" style="flex-wrap: wrap;">
+                            ${meeting.scheduledBy ? `<span style="color: ${borderColor}; font-weight: 600;"><i class="ph ph-user-circle"></i> ${this.escapeHtml(meeting.scheduledBy)}</span>` : ''}
                             ${hasFiles ? `<span><i class="ph ph-paperclip"></i> ${meeting.files.length}</span>` : ''}
                             ${hasLinked ? `<span><i class="ph ph-link"></i> ${meeting.linkedRates.length}</span>` : ''}
                             ${isStartingSoon ? `<span><i class="ph ph-bell-ringing"></i> Soon!</span>` : ''}
@@ -4659,20 +4661,23 @@
                             ${this.escapeHtml(meeting.company)}
                         </div>
                         ${meeting.subject ? `<div class="subject">${this.escapeHtml(meeting.subject)}</div>` : ''}
-                        <div class="meta">
+                        <div class="meta" style="flex-wrap: wrap;">
                             <span><i class="ph ph-clock"></i> ${meeting.startTime}${meeting.endTime ? ' - ' + meeting.endTime : ''}</span>
+                            ${meeting.scheduledBy ? `<span style="color: ${borderColor}; font-weight: 600;"><i class="ph ph-user-circle"></i> ${this.escapeHtml(meeting.scheduledBy)}</span>` : ''}
                             ${hasFiles ? `<span><i class="ph ph-paperclip"></i> ${meeting.files.length}</span>` : ''}
                             ${hasLinked ? `<span><i class="ph ph-link"></i> ${meeting.linkedRates.length}</span>` : ''}
                         </div>
-                        ${meeting.scheduledBy ? `<div class="meta" style="color: ${borderColor}; margin-top: 2px;"><span><i class="ph ph-user-circle"></i> ${this.escapeHtml(meeting.scheduledBy)}</span></div>` : ''}
                     </div>
                 `;
             }
 
             getMeetingsForDate(dateStr) {
-                // Show ALL meetings (both SMS and VOICE) on calendar
-                return this.state.meetings.filter(m => m.date === dateStr)
-                    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+                // Filter meetings by date and current service type (SMS or VOICE)
+                const currentServiceType = this.state.meetingsServiceType || 'SMS';
+                return this.state.meetings.filter(m =>
+                    m.date === dateStr && m.serviceType === currentServiceType
+                )
+                .sort((a, b) => a.startTime.localeCompare(b.startTime));
             }
 
             updateMeetingCount() {
