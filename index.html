@@ -2633,10 +2633,12 @@
 
             async saveState() {
                 try {
+                    // Only save rates and custom options here.
+                    // Meetings and companies are saved individually via
+                    // saveSingleMeetingToSupabase / saveSingleCompanyToSupabase
+                    // to prevent bulk overwrites that wipe meeting details.
                     await Promise.all([
                         this.saveRatesToSupabase(),
-                        this.saveCompaniesToSupabase(),
-                        this.saveMeetingsToSupabase(),
                         this.saveCustomOptionsToSupabase()
                     ]);
                 } catch (error) {
@@ -5167,20 +5169,18 @@
                 const serviceType = this.state.companiesServiceType || 'SMS';
 
                 // Fix any meetings with null companyId by matching company names
-                let fixed = false;
+                const fixedMeetings = [];
                 this.state.meetings.forEach(meeting => {
                     if (!meeting.companyId && meeting.company) {
                         const matchingCompany = this.state.companies.find(c => c.company === meeting.company);
                         if (matchingCompany) {
                             meeting.companyId = matchingCompany.id;
-                            console.log(`✅ FIXED: Updated meeting "${meeting.company}" with companyId: ${matchingCompany.id}`);
-                            fixed = true;
+                            fixedMeetings.push(meeting);
                         }
                     }
                 });
-                if (fixed) {
-                    this.saveState();
-                }
+                // Save only the fixed meetings, not all
+                fixedMeetings.forEach(m => this.saveSingleMeetingToSupabase(m).catch(err => console.error('Error fixing meeting ref:', err)));
 
                 console.log('📋 DEBUG: All meetings:', this.state.meetings);
                 console.log('🏢 DEBUG: All companies:', this.state.companies);
@@ -5342,23 +5342,32 @@
                 this.showToast(`${typeLabel} company added!`);
             }
 
-            deleteCompany(companyId) {
+            async deleteCompany(companyId) {
                 const company = this.state.companies.find(c => c.id === companyId);
                 if (!company) return;
 
                 if (confirm(`Delete ${company.company}? This will also delete all their scheduled meetings.`)) {
-                    // Track deleted company ID
-                    this.state.deletedCompanyIds.push(companyId);
+                    // Get meeting IDs for this company
+                    const meetingIds = this.state.meetings
+                        .filter(m => m.companyId === companyId)
+                        .map(m => m.id)
+                        .filter(Boolean);
 
-                    // Track deleted meeting IDs for this company
-                    const meetingsToDelete = this.state.meetings.filter(m => m.companyId === companyId);
-                    meetingsToDelete.forEach(m => {
-                        if (m.id) this.state.deletedMeetingIds.push(m.id);
-                    });
-
+                    // Remove from in-memory state
                     this.state.companies = this.state.companies.filter(c => c.id !== companyId);
                     this.state.meetings = this.state.meetings.filter(m => m.companyId !== companyId);
-                    this.saveState();
+
+                    // Delete directly from DB
+                    try {
+                        if (meetingIds.length > 0) {
+                            await supabaseClient.from('meeting_files').delete().in('meeting_id', meetingIds);
+                            await supabaseClient.from('meetings').delete().in('id', meetingIds);
+                        }
+                        await supabaseClient.from('companies').delete().eq('id', companyId);
+                    } catch (err) {
+                        console.error('Error deleting company from DB:', err);
+                    }
+
                     this.renderCompaniesUI();
                     this.showToast('Company deleted');
                 }
@@ -6047,14 +6056,21 @@
                 this.showToast('Meeting details saved!');
             }
 
-            deleteMeeting() {
+            async deleteMeeting() {
                 if (!this.editingMeetingId) return;
 
                 if (confirm('Delete this meeting?')) {
-                    // Track deleted meeting ID
-                    this.state.deletedMeetingIds.push(this.editingMeetingId);
-                    this.state.meetings = this.state.meetings.filter(m => m.id !== this.editingMeetingId);
-                    this.saveState();
+                    const meetingId = this.editingMeetingId;
+                    this.state.meetings = this.state.meetings.filter(m => m.id !== meetingId);
+
+                    // Delete directly from DB
+                    try {
+                        await supabaseClient.from('meeting_files').delete().eq('meeting_id', meetingId);
+                        await supabaseClient.from('meetings').delete().eq('id', meetingId);
+                    } catch (err) {
+                        console.error('Error deleting meeting from DB:', err);
+                    }
+
                     this.closeMeetingModal();
                     this.renderMeetingsUI();
                     this.renderCompaniesUI();
