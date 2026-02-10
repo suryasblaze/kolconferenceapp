@@ -351,7 +351,7 @@
             border-right: 1px solid #e2e8f0;
         }
         .time-label {
-            height: 60px;
+            height: 120px;
             padding: 4px 8px;
             font-size: 10px;
             font-weight: 600;
@@ -365,7 +365,7 @@
             position: relative;
         }
         .time-grid-line {
-            height: 60px;
+            height: 120px;
             border-bottom: 1px solid #e2e8f0;
             position: relative;
         }
@@ -400,11 +400,11 @@
             color: #249E94;
             cursor: pointer;
             pointer-events: auto;
-            overflow: hidden;
+            overflow: visible;
             box-shadow: 0 2px 6px rgba(59, 130, 246, 0.15);
             border: 1px solid #93c5fd;
             transition: transform 0.15s, box-shadow 0.15s;
-            min-height: 75px;
+            min-height: 55px;
         }
         .meeting-block:active {
             transform: scale(0.98);
@@ -427,9 +427,6 @@
         .meeting-block .company {
             font-weight: 700;
             font-size: 12px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }
         .meeting-block .time-range {
             font-size: 10px;
@@ -4471,7 +4468,7 @@
             renderTimeSlots() {
                 const container = document.getElementById('time-slots-container');
                 const meetings = this.getMeetingsForDate(this.state.currentMeetingDate);
-                const HOUR_HEIGHT = 60; // pixels per hour
+                const HOUR_HEIGHT = 120; // pixels per hour
                 const START_HOUR = 6;   // Start from 6 AM
                 const END_HOUR = 23;    // End at 11 PM
                 const now = new Date();
@@ -4494,20 +4491,35 @@
 
                 // Generate meeting blocks with proper positioning
                 // Allocate meetings to lanes to avoid overlaps
-                this.allocateMeetingLanes(meetings);
+                // Calculate non-overlapping vertical positions for all meetings
+                const CARD_HEIGHT = 72; // Estimated card height with content
+                const CARD_GAP = 4;     // Gap between cards
+                let placedCards = [];    // Track placed card positions
 
-                // DEBUG: Log lane allocation
-                console.log('📅 Meetings for date:', this.state.currentMeetingDate);
-                console.log('📊 Total meetings:', meetings.length);
-                console.log('🎯 Total lanes needed:', meetings[0]?._totalLanes || 0);
-                meetings.forEach(m => {
-                    console.log(`🔹 "${m.company}" (${m.startTime}-${m.endTime || 'auto'}): Lane ${m._lane + 1}/${m._totalLanes}`);
+                meetings.forEach(meeting => {
+                    const [sH, sM] = meeting.startTime.split(':').map(Number);
+                    const idealTop = ((sH - START_HOUR) * 60 + sM) / 60 * HOUR_HEIGHT;
+                    let finalTop = idealTop;
+
+                    // Push down if overlapping with any placed card
+                    let hasOverlap = true;
+                    while (hasOverlap) {
+                        hasOverlap = false;
+                        for (const card of placedCards) {
+                            if (finalTop < card.bottom && finalTop + CARD_HEIGHT > card.top) {
+                                finalTop = card.bottom + CARD_GAP;
+                                hasOverlap = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    meeting._finalTop = finalTop;
+                    placedCards.push({ top: finalTop, bottom: finalTop + CARD_HEIGHT });
                 });
 
                 let meetingBlocksHTML = meetings.map(meeting => {
-                    const totalLanes = meeting._totalLanes || 1;
-                    const laneIndex = meeting._lane || 0;
-                    return this.createMeetingBlockHTML(meeting, START_HOUR, HOUR_HEIGHT, isToday, now, totalLanes, laneIndex);
+                    return this.createMeetingBlockHTML(meeting, START_HOUR, HOUR_HEIGHT, isToday, now);
                 }).join('');
 
                 container.innerHTML = `
@@ -4526,28 +4538,10 @@
                 }
             }
 
-            createMeetingBlockHTML(meeting, startHour, hourHeight, isToday, now, overlappingCount = 1, positionIndex = 0) {
-                // Parse start time
+            createMeetingBlockHTML(meeting, startHour, hourHeight, isToday, now) {
+                // Use pre-calculated position - no overlapping, full width
+                const topPx = meeting._finalTop;
                 const [startH, startM] = meeting.startTime.split(':').map(Number);
-                // Parse end time (default to 1 hour after start if not set)
-                let endH, endM;
-                if (meeting.endTime) {
-                    [endH, endM] = meeting.endTime.split(':').map(Number);
-                } else {
-                    endH = startH + 1;
-                    endM = startM;
-                }
-
-                // Calculate position and height (increased minimum to fit scheduledBy email)
-                const startMinutes = (startH - startHour) * 60 + startM;
-                const endMinutes = (endH - startHour) * 60 + endM;
-                const topPx = (startMinutes / 60) * hourHeight;
-                const heightPx = Math.max(((endMinutes - startMinutes) / 60) * hourHeight, 75);
-
-                // Calculate width and left position for overlapping meetings
-                const gapPercent = 0.5; // Small gap between meetings
-                const widthPercent = overlappingCount > 1 ? ((100 / overlappingCount) - gapPercent) : 100;
-                const leftPercent = overlappingCount > 1 ? ((widthPercent + gapPercent) * positionIndex) : 0;
 
                 // Determine status
                 const hasNotes = meeting.notes && meeting.notes.trim().length > 0;
@@ -4566,7 +4560,7 @@
 
                 // Determine CSS class and colors based on service type
                 const isVoice = (meeting.serviceType || 'SMS') === 'VOICE';
-                const bgColor = isVoice ? '#d1fae5' : '#dbeafe';  // Green for VOICE, Blue for SMS
+                const bgColor = isVoice ? '#d1fae5' : '#dbeafe';
                 const borderColor = isVoice ? '#10b981' : '#3b82f6';
                 const typeIcon = isVoice ? 'ph-phone-call' : 'ph-chat-text';
                 const typeLabel = isVoice ? 'VOICE' : 'SMS';
@@ -4574,29 +4568,22 @@
                 let blockClass = 'meeting-block';
                 if (isCompleted) blockClass += ' completed';
                 else if (isStartingSoon) blockClass += ' starting-soon';
-                if (heightPx < 60) blockClass += ' short';
 
                 return `
                     <div class="${blockClass}"
-                         style="top: ${topPx}px; height: ${heightPx}px; width: calc(${widthPercent}% - 16px); left: calc(${leftPercent}% + 8px); padding-right: 8px; background: ${bgColor}; border-left: 3px solid ${borderColor};"
+                         style="top: ${topPx}px; width: calc(100% - 16px); left: 8px; background: ${bgColor}; border-left: 3px solid ${borderColor};"
                          onclick="event.stopPropagation(); app.openMeetingModal('${meeting.id}')">
-                        <div class="company" style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
-                            <span style="font-size: 8px; padding: 1px 4px; background: ${borderColor}; color: white; border-radius: 3px; white-space: nowrap;">
+                        <div class="company" style="display: flex; align-items: center; gap: 3px;">
+                            <span style="font-size: 7px; padding: 1px 3px; background: ${borderColor}; color: white; border-radius: 3px; white-space: nowrap; flex-shrink: 0;">
                                 <i class="ph ${typeIcon}"></i> ${typeLabel}
                             </span>
-                            <span>${this.escapeHtml(meeting.company)}</span>
+                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">${this.escapeHtml(meeting.company)}</span>
                         </div>
                         <div class="time-range">
                             <i class="ph ph-clock"></i>
                             ${this.formatTimeDisplay(meeting.startTime)} - ${this.formatTimeDisplay(meeting.endTime || this.addHourToTime(meeting.startTime))}
                         </div>
-                        ${meeting.scheduledBy ? `<div style="font-size: 9px; color: ${borderColor}; font-weight: 600; margin-top: 2px; display: flex; align-items: center; gap: 3px;"><i class="ph ph-user-circle"></i> <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this.escapeHtml(meeting.scheduledBy)}</span></div>` : ''}
-                        <div class="meta-icons" style="flex-wrap: wrap;">
-                            ${hasFiles ? `<span><i class="ph ph-paperclip"></i> ${meeting.files.length}</span>` : ''}
-                            ${hasLinked ? `<span><i class="ph ph-link"></i> ${meeting.linkedRates.length}</span>` : ''}
-                            ${isStartingSoon ? `<span><i class="ph ph-bell-ringing"></i> Soon!</span>` : ''}
-                        </div>
-                        ${overlappingCount > 1 ? `<div style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.5);color:white;font-size:10px;padding:3px 6px;border-radius:4px;font-weight:bold;">${positionIndex + 1}/${overlappingCount}</div>` : ''}
+                        ${meeting.scheduledBy ? `<div style="font-size: 9px; color: ${borderColor}; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><i class="ph ph-user-circle"></i> ${this.escapeHtml(meeting.scheduledBy)}</div>` : ''}
                     </div>
                 `;
             }
