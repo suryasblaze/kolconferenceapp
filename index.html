@@ -2576,6 +2576,31 @@
                 }
             }
 
+            // Save only a single company to Supabase (fast - 1 DB call)
+            async saveSingleCompanyToSupabase(company) {
+                const record = {
+                    id: company.id,
+                    company_name: company.company,
+                    service_type: company.serviceType,
+                    contact_person: company.contactPerson,
+                    email: company.email,
+                    phone: company.phone,
+                    skype: company.skype,
+                    whatsapp: company.whatsapp,
+                    created_by: company.createdBy,
+                    updated_at: new Date().toISOString()
+                };
+
+                const { error } = await supabaseClient
+                    .from('companies')
+                    .upsert([record], { onConflict: 'id' });
+
+                if (error) {
+                    console.error('Error upserting company:', error);
+                    throw error;
+                }
+            }
+
             // Save only a single meeting to Supabase (fast - 1 DB call instead of 80+)
             async saveSingleMeetingToSupabase(meeting) {
                 const meetingRecord = {
@@ -5340,7 +5365,10 @@
                 };
 
                 this.state.companies.push(company);
-                this.saveState();
+                this.saveSingleCompanyToSupabase(company).catch(err => {
+                    console.error('Error saving company:', err);
+                    this.showToast('Error saving company', 'error');
+                });
                 this.toggleAddCompanyForm();
                 this.renderCompaniesUI();
                 const typeLabel = company.serviceType === 'VOICE' ? 'Voice' : 'SMS';
@@ -5484,15 +5512,14 @@
 
                 this.state.meetings.push(meeting);
 
-                // Save and re-enable button
-                this.saveState().then(() => {
+                // Save only this new meeting (fast - 1 DB call, not all)
+                this.saveSingleMeetingToSupabase(meeting).then(() => {
                     this.closeScheduleModal();
                     this.renderCompaniesUI();
                     this.renderMeetingsUI();
                     const typeLabel = meeting.serviceType === 'VOICE' ? 'Voice' : 'SMS';
                     this.showToast(`${typeLabel} meeting scheduled!`);
 
-                    // Re-enable button for next use
                     if (scheduleBtn) {
                         scheduleBtn.disabled = false;
                         scheduleBtn.textContent = 'Schedule';
@@ -5501,7 +5528,6 @@
                     console.error('Error saving meeting:', error);
                     this.showToast('Error scheduling meeting', 'error');
 
-                    // Re-enable button on error
                     if (scheduleBtn) {
                         scheduleBtn.disabled = false;
                         scheduleBtn.textContent = 'Schedule';
