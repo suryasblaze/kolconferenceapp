@@ -2521,41 +2521,8 @@
                             }))
                         }));
 
-                        // Auto-deduplicate: keep the one with most content for each company+date+time
-                        const seen = new Map();
-                        const duplicateIds = [];
-                        allMeetings.forEach(m => {
-                            const key = `${m.companyId}_${m.date}_${m.startTime}`;
-                            const hasContent = m.notes?.trim() || m.strongRegion?.trim() || m.lookingFor?.trim() || m.reason?.trim() || m.clientOffers?.length > 0 || m.linkedRates?.length > 0 || m.files?.length > 0;
-                            if (seen.has(key)) {
-                                const existing = seen.get(key);
-                                const existingHasContent = existing.notes?.trim() || existing.strongRegion?.trim() || existing.lookingFor?.trim() || existing.reason?.trim() || existing.clientOffers?.length > 0 || existing.linkedRates?.length > 0 || existing.files?.length > 0;
-                                if (hasContent && !existingHasContent) {
-                                    // New one has content, replace and mark old as duplicate
-                                    duplicateIds.push(existing.id);
-                                    seen.set(key, m);
-                                } else {
-                                    // Keep existing, mark new as duplicate
-                                    duplicateIds.push(m.id);
-                                }
-                            } else {
-                                seen.set(key, m);
-                            }
-                        });
-
-                        this.state.meetings = allMeetings.filter(m => !duplicateIds.includes(m.id));
-
-                        // Delete duplicates from DB in background
-                        if (duplicateIds.length > 0) {
-                            console.log(`🧹 Auto-removing ${duplicateIds.length} duplicate meetings`);
-                            supabaseClient
-                                .from('meeting_files')
-                                .delete()
-                                .in('meeting_id', duplicateIds)
-                                .then(() => supabaseClient.from('meetings').delete().in('id', duplicateIds))
-                                .then(() => console.log('✅ Duplicates removed from DB'))
-                                .catch(err => console.error('Error removing duplicates:', err));
-                        }
+                        // Load all meetings as-is from DB - no auto-deletion
+                        this.state.meetings = allMeetings;
                     }
 
                     // Load custom options
