@@ -1515,6 +1515,7 @@
                         <div class="flex-1">
                             <p class="font-bold text-slate-800" id="meeting-company-display-edit">Company Name</p>
                             <p class="text-xs text-slate-500" id="meeting-time-display-edit">9:00 AM - 10:00 AM</p>
+                            <p class="text-xs text-blue-600" id="meeting-created-by-display-edit"></p>
                         </div>
                     </div>
 
@@ -5730,6 +5731,19 @@
                 const startTime = this.formatTimeDisplay(meeting.startTime);
                 const endTime = meeting.endTime ? this.formatTimeDisplay(meeting.endTime) : '';
                 document.getElementById('meeting-time-display-edit').textContent = endTime ? `${startTime} - ${endTime}` : startTime;
+
+                // Show who created company and scheduled meeting in edit view
+                const companyEdit = this.state.companies.find(c => c.id === meeting.companyId);
+                const editCreatedByDisplay = document.getElementById('meeting-created-by-display-edit');
+                let editCreatedByText = '';
+                if (companyEdit && companyEdit.createdBy) {
+                    editCreatedByText += `<i class="ph ph-buildings"></i> Company added by: ${this.escapeHtml(companyEdit.createdBy)}`;
+                }
+                if (meeting.scheduledBy) {
+                    if (editCreatedByText) editCreatedByText += '<br>';
+                    editCreatedByText += `<i class="ph ph-calendar-plus"></i> Scheduled by: ${this.escapeHtml(meeting.scheduledBy)}`;
+                }
+                editCreatedByDisplay.innerHTML = editCreatedByText;
 
                 // Populate meeting detail fields
                 document.getElementById('meeting-strong-region').value = meeting.strongRegion || '';
