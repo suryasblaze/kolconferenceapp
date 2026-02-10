@@ -83,10 +83,12 @@ CREATE TABLE meetings (
 
     -- Meeting Details
     company TEXT NOT NULL,
+    subject TEXT,
     date DATE NOT NULL,
     start_time TIME NOT NULL,
     end_time TIME,
     service_type TEXT NOT NULL,
+    status TEXT DEFAULT 'scheduled',
 
     -- Contact Information
     contact_person TEXT,

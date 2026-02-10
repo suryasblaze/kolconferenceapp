@@ -1412,7 +1412,7 @@
                     <button onclick="app.closeScheduleModal()" class="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-semibold text-sm">
                         Cancel
                     </button>
-                    <button onclick="app.confirmScheduleMeeting()" class="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-semibold text-sm">
+                    <button id="schedule-btn" onclick="app.confirmScheduleMeeting()" class="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-semibold text-sm">
                         Schedule
                     </button>
                 </div>
@@ -1667,7 +1667,7 @@
                         <button onclick="app.deleteMeeting()" class="py-3 px-4 bg-red-100 text-red-600 rounded-xl font-semibold text-sm">
                             <i class="ph-fill ph-trash"></i>
                         </button>
-                        <button onclick="app.saveMeetingDetails()" class="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-semibold text-sm">
+                        <button id="meeting-save-btn" onclick="app.saveMeetingDetails()" class="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-semibold text-sm">
                             Save
                         </button>
                     </div>
@@ -2488,12 +2488,14 @@
                     if (meetingsData) {
                         this.state.meetings = meetingsData.map(m => ({
                             id: m.id,
-                            companyId: m.company_id,  // FIXED: Map company_id from database
+                            companyId: m.company_id,
                             company: m.company,
+                            subject: m.subject || '',
                             date: m.date,
                             startTime: m.start_time,
                             endTime: m.end_time,
                             serviceType: m.service_type,
+                            status: m.status || 'scheduled',
                             contactPerson: m.contact_person,
                             email: m.email,
                             phone: m.phone,
@@ -2511,7 +2513,7 @@
                             clientOffers: m.client_offers || [],
                             linkedRates: m.linked_rates || [],
                             files: (m.meeting_files || []).map(f => ({
-                                id: f.id,  // FIXED: Include file ID for view/download functionality
+                                id: f.id,
                                 name: f.file_name,
                                 size: f.file_size,
                                 type: f.file_type,
@@ -2535,6 +2537,69 @@
                 } catch (error) {
                     console.error('Supabase load error:', error);
                     throw error;
+                }
+            }
+
+            // Save only a single meeting to Supabase (fast - 1 DB call instead of 80+)
+            async saveSingleMeetingToSupabase(meeting) {
+                const meetingRecord = {
+                    id: meeting.id,
+                    company_id: meeting.companyId,
+                    company: meeting.company,
+                    subject: meeting.subject || '',
+                    date: meeting.date,
+                    start_time: meeting.startTime,
+                    end_time: meeting.endTime,
+                    service_type: meeting.serviceType,
+                    status: meeting.status || 'scheduled',
+                    contact_person: meeting.contactPerson,
+                    email: meeting.email,
+                    phone: meeting.phone,
+                    skype: meeting.skype,
+                    whatsapp: meeting.whatsapp,
+                    scheduled_by: meeting.scheduledBy,
+                    strong_region: meeting.strongRegion,
+                    looking_for: meeting.lookingFor,
+                    active_status: meeting.activeStatus,
+                    reason: meeting.reason,
+                    payable: meeting.payable,
+                    deal_proposals: meeting.dealProposals,
+                    route_issue: meeting.routeIssue,
+                    notes: meeting.notes,
+                    client_offers: meeting.clientOffers || [],
+                    linked_rates: meeting.linkedRates || [],
+                    updated_at: new Date().toISOString()
+                };
+
+                const { error } = await supabaseClient
+                    .from('meetings')
+                    .upsert([meetingRecord], { onConflict: 'id' });
+
+                if (error) {
+                    console.error('Error upserting meeting:', error);
+                    throw error;
+                }
+
+                // Handle meeting files
+                await supabaseClient
+                    .from('meeting_files')
+                    .delete()
+                    .eq('meeting_id', meeting.id);
+
+                if (meeting.files && meeting.files.length > 0) {
+                    const fileRecords = meeting.files.map(f => ({
+                        meeting_id: meeting.id,
+                        file_name: f.name,
+                        file_size: f.size,
+                        file_type: f.type,
+                        file_data: f.data
+                    }));
+
+                    const { error: fileError } = await supabaseClient.from('meeting_files').insert(fileRecords);
+                    if (fileError) {
+                        console.error('Error saving files:', fileError);
+                        throw fileError;
+                    }
                 }
             }
 
@@ -2714,10 +2779,12 @@
                             id: meeting.id,
                             company_id: meeting.companyId,
                             company: meeting.company,
+                            subject: meeting.subject || '',
                             date: meeting.date,
                             start_time: meeting.startTime,
                             end_time: meeting.endTime,
                             service_type: meeting.serviceType,
+                            status: meeting.status || 'scheduled',
                             contact_person: meeting.contactPerson,
                             email: meeting.email,
                             phone: meeting.phone,
@@ -5299,7 +5366,7 @@
 
             confirmScheduleMeeting() {
                 // Prevent duplicate submissions
-                const scheduleBtn = document.querySelector('#schedule-modal-content button[onclick*="confirmScheduleMeeting"]');
+                const scheduleBtn = document.getElementById('schedule-btn');
                 if (scheduleBtn && scheduleBtn.disabled) return;
 
                 const companyId = document.getElementById('schedule-company-id').value;
@@ -5451,14 +5518,12 @@
                 const actionText = document.getElementById('meeting-action-text');
                 const actionIcon = actionBtn.querySelector('i');
 
-                const hasNotes = meeting.notes && meeting.notes.trim().length > 0;
-                const hasClientOffers = meeting.clientOffers?.length > 0;
-                const hasContent = hasNotes || hasClientOffers || meeting.files?.length > 0 || meeting.linkedRates?.length > 0;
+                const hasContent = meeting.notes?.trim() || meeting.clientOffers?.length > 0 || meeting.files?.length > 0 || meeting.linkedRates?.length > 0 || meeting.strongRegion?.trim() || meeting.lookingFor?.trim() || meeting.reason?.trim() || meeting.payable?.trim() || meeting.dealProposals?.trim() || meeting.routeIssue?.trim() || meeting.activeStatus;
 
                 if (hasContent) {
                     statusBadge.textContent = 'Completed';
                     statusBadge.className = 'meeting-status completed';
-                    // Show Edit button
+                    // Show Edit button only
                     actionText.textContent = 'Edit';
                     actionIcon.className = 'ph-bold ph-pencil-simple';
                     actionBtn.className = 'flex-1 py-3 bg-[#3BC1A8] text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2';
@@ -5861,11 +5926,20 @@
                 return `${newHour.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
             }
 
-            saveMeetingDetails() {
+            async saveMeetingDetails() {
                 if (!this.editingMeetingId) return;
+
+                const saveBtn = document.getElementById('meeting-save-btn');
+                if (saveBtn && saveBtn.disabled) return;
 
                 const index = this.state.meetings.findIndex(m => m.id === this.editingMeetingId);
                 if (index === -1) return;
+
+                // Disable save button while saving
+                if (saveBtn) {
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = 'Saving...';
+                }
 
                 // Get all form values
                 const strongRegion = document.getElementById('meeting-strong-region').value.trim();
@@ -5898,18 +5972,43 @@
                     updatedAt: new Date().toISOString()
                 };
 
-                this.saveState();
-
-                // Update status badge
-                const statusBadge = document.getElementById('meeting-status-badge');
+                // Save only this meeting to database (fast - single meeting, not all)
                 const meeting = this.state.meetings[index];
-                const hasContent = meeting.notes?.trim() || meeting.files?.length > 0 || meeting.linkedRates?.length > 0 || meeting.clientOffers?.length > 0 || meeting.strongRegion?.trim();
+                try {
+                    await this.saveSingleMeetingToSupabase(meeting);
+                } catch (error) {
+                    console.error('Error saving meeting details:', error);
+                    this.showToast('Error saving meeting details', 'error');
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Save';
+                    }
+                    return;
+                }
+                const hasContent = meeting.notes?.trim() || meeting.files?.length > 0 || meeting.linkedRates?.length > 0 || meeting.clientOffers?.length > 0 || meeting.strongRegion?.trim() || meeting.lookingFor?.trim() || meeting.reason?.trim() || meeting.payable?.trim() || meeting.dealProposals?.trim() || meeting.routeIssue?.trim();
+
+                // Update status badge and action button
+                const statusBadge = document.getElementById('meeting-status-badge');
+                const actionBtn = document.getElementById('meeting-action-btn');
+                const actionText = document.getElementById('meeting-action-text');
+                const actionIcon = actionBtn.querySelector('i');
+
                 if (hasContent) {
                     statusBadge.textContent = 'Completed';
                     statusBadge.className = 'meeting-status completed';
+                    // Switch action button to Edit mode
+                    actionText.textContent = 'Edit';
+                    actionIcon.className = 'ph-bold ph-pencil-simple';
+                    actionBtn.className = 'flex-1 py-3 bg-[#3BC1A8] text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2';
                 }
 
-                // Re-render details view and switch back to it
+                // Re-enable save button
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save';
+                }
+
+                // Re-render details view and switch back to read-only
                 this.renderMeetingDetailsView(meeting);
                 document.getElementById('meeting-details-view').classList.remove('hidden');
                 document.getElementById('meeting-edit-view').classList.add('hidden');
