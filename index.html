@@ -2523,6 +2523,11 @@
 
                         // Load all meetings as-is from DB - no auto-deletion
                         this.state.meetings = allMeetings;
+
+                        // Log meetings with details to verify DB data
+                        const withDetails = allMeetings.filter(m => m.strongRegion || m.lookingFor || m.notes || m.activeStatus || m.reason);
+                        console.log(`📊 LOADED ${allMeetings.length} meetings from DB, ${withDetails.length} have details`);
+                        withDetails.forEach(m => console.log('  📋', m.company, '- strongRegion:', m.strongRegion, 'notes:', m.notes?.substring(0, 50)));
                     }
 
                     // Load custom options
@@ -2599,13 +2604,44 @@
                     updated_at: new Date().toISOString()
                 };
 
-                const { error } = await supabaseClient
+                console.log('💾 SAVING meeting to DB:', meeting.id, 'Details:', {
+                    strongRegion: meeting.strongRegion,
+                    lookingFor: meeting.lookingFor,
+                    notes: meeting.notes,
+                    activeStatus: meeting.activeStatus,
+                    reason: meeting.reason
+                });
+
+                const { data: upsertData, error } = await supabaseClient
                     .from('meetings')
-                    .upsert([meetingRecord], { onConflict: 'id' });
+                    .upsert([meetingRecord], { onConflict: 'id' })
+                    .select();
 
                 if (error) {
-                    console.error('Error upserting meeting:', error);
+                    console.error('❌ UPSERT FAILED for meeting:', meeting.id, error);
                     throw error;
+                }
+
+                console.log('✅ UPSERT SUCCESS for meeting:', meeting.id, 'Returned:', upsertData);
+
+                // Verify: read back from DB to confirm data was actually saved
+                const { data: verifyData, error: verifyError } = await supabaseClient
+                    .from('meetings')
+                    .select('id, strong_region, looking_for, notes, active_status, reason, deal_proposals')
+                    .eq('id', meeting.id)
+                    .single();
+
+                if (verifyError) {
+                    console.error('⚠️ VERIFY READ FAILED:', verifyError);
+                } else {
+                    console.log('🔍 VERIFY from DB:', verifyData);
+                    // Check if details actually saved
+                    if (meeting.strongRegion && !verifyData.strong_region) {
+                        console.error('🚨 DATA LOSS: strongRegion was sent but not in DB!');
+                    }
+                    if (meeting.notes && !verifyData.notes) {
+                        console.error('🚨 DATA LOSS: notes was sent but not in DB!');
+                    }
                 }
 
                 // Handle meeting files
@@ -6012,10 +6048,17 @@
 
                 // Save only this meeting to database (fast - single meeting, not all)
                 const meeting = this.state.meetings[index];
+                console.log('📝 saveMeetingDetails: About to save meeting:', meeting.id, {
+                    strongRegion, lookingFor, activeStatus, reason, payable, dealProposals, routeIssue, notes,
+                    clientOffersCount: clientOffers?.length,
+                    linkedRatesCount: this.pendingLinkedRates?.length,
+                    filesCount: this.pendingMeetingFiles?.length
+                });
                 try {
                     await this.saveSingleMeetingToSupabase(meeting);
+                    console.log('✅ saveMeetingDetails: Save completed successfully for', meeting.id);
                 } catch (error) {
-                    console.error('Error saving meeting details:', error);
+                    console.error('❌ saveMeetingDetails: SAVE FAILED for', meeting.id, error);
                     this.showToast('Error saving meeting details', 'error');
                     if (saveBtn) {
                         saveBtn.disabled = false;
