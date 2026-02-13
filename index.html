@@ -5247,17 +5247,9 @@
                 const initials = this.getCompanyInitials(company.company);
                 const today = this.formatDateStr(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
 
-                // Get meeting for this company (check if meeting exists for today or future dates)
-                const todayDate = new Date().toISOString().split('T')[0];
-                console.log(`🔍 DEBUG: Looking for meetings for company "${company.company}" (ID: ${company.id})`);
-                console.log(`📅 DEBUG: Today's date: ${todayDate}`);
-                console.log(`🔍 DEBUG: Checking meetings:`, this.state.meetings.filter(m => m.companyId === company.id));
-
-                const companyMeeting = this.state.meetings.find(m =>
-                    m.companyId === company.id && m.date >= todayDate
-                );
+                // Get ANY meeting for this company (not just upcoming)
+                const companyMeeting = this.state.meetings.find(m => m.companyId === company.id);
                 const hasMeeting = !!companyMeeting;
-                console.log(`✅ DEBUG: Company "${company.company}" - Has meeting: ${hasMeeting}`, companyMeeting ? `(Meeting on ${companyMeeting.date})` : '(No upcoming meeting)');
 
                 // Determine button based on meeting existence
                 let actionButton = '';
