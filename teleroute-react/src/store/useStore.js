@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { supabase } from '../lib/supabase';
+import { validateCompany, sanitizeString } from '../lib/validation';
 
 const useStore = create(
   persist(
@@ -181,28 +182,42 @@ const useStore = create(
 
       // Company operations
       addCompany: (company) => {
+        // Validate company data
+        const validation = validateCompany(company);
+        if (!validation.valid) {
+          get().showToast(validation.errors[0], 'error');
+          return false;
+        }
+
         const newCompany = {
-          id: `company_${Date.now()}`,
-          name: company.name || '',
-          phone: company.phone || '',
-          email: company.email || '',
-          contactPerson: company.contactPerson || '',
-          skype: company.skype || '',
-          whatsapp: company.whatsapp || '',
+          id: `company_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name: sanitizeString(company.name),
+          phone: sanitizeString(company.phone || ''),
+          email: sanitizeString(company.email || ''),
+          contactPerson: sanitizeString(company.contactPerson || ''),
+          skype: sanitizeString(company.skype || ''),
+          whatsapp: sanitizeString(company.whatsapp || ''),
           serviceType: company.serviceType || 'SMS',
-          createdBy: company.createdBy || ''
+          createdBy: sanitizeString(company.createdBy || '')
         };
         set((state) => ({
           companies: [...state.companies, newCompany]
         }));
         // Auto-save to Supabase
         get().saveSingleCompanyToSupabase(newCompany);
+        return true;
       },
 
       updateCompany: (companyId, updates) => {
+        // Sanitize string inputs
+        const sanitizedUpdates = {};
+        for (const [key, value] of Object.entries(updates)) {
+          sanitizedUpdates[key] = typeof value === 'string' ? sanitizeString(value) : value;
+        }
+
         set((state) => ({
           companies: state.companies.map((c) =>
-            c.id === companyId ? { ...c, ...updates } : c
+            c.id === companyId ? { ...c, ...sanitizedUpdates } : c
           )
         }));
         // Auto-save to Supabase
@@ -221,7 +236,7 @@ const useStore = create(
         try {
           await supabase.from('companies').delete().eq('id', companyId);
         } catch (error) {
-          console.error('Error deleting company:', error);
+          get().showToast('Error deleting company', 'error');
         }
       },
 
@@ -258,7 +273,7 @@ const useStore = create(
         try {
           await supabase.from('meetings').delete().eq('id', meetingId);
         } catch (error) {
-          console.error('Error deleting meeting:', error);
+          get().showToast('Error deleting meeting', 'error');
         }
       },
 
@@ -304,9 +319,7 @@ const useStore = create(
             .select('*')
             .order('created_at', { ascending: true });
 
-          if (ratesError) {
-            console.error('Error loading rates:', ratesError);
-          }
+          // Errors handled by general catch block
 
           // Helper to check if a rate row has meaningful data
           const isRowEmpty = (rate) => {
@@ -361,9 +374,7 @@ const useStore = create(
             .select('*')
             .order('created_at', { ascending: true });
 
-          if (companiesError) {
-            console.error('Error loading companies:', companiesError);
-          }
+          // Errors handled by general catch block
 
           const companies = (companiesData || []).map((c) => ({
             id: c.id,
@@ -383,14 +394,33 @@ const useStore = create(
             .select('*')
             .order('date', { ascending: true });
 
-          if (meetingsError) {
-            console.error('Error loading meetings:', meetingsError);
-          }
+          // Errors handled by general catch block
 
-          console.log('📅 Loaded meetings from DB:', meetingsData?.length || 0);
-          meetingsData?.forEach(m => {
-            console.log('  - Meeting:', m.id, '| Company:', m.company, '| CompanyId:', m.company_id, '| ScheduledBy:', m.scheduled_by);
-          });
+          // Debug logging removed for production security
+
+          // Load meeting files
+          const { data: filesData } = await supabase
+            .from('meeting_files')
+            .select('*');
+
+          // Group files by meeting_id
+          const filesByMeetingId = {};
+          if (filesData) {
+            filesData.forEach((f) => {
+              if (!filesByMeetingId[f.meeting_id]) {
+                filesByMeetingId[f.meeting_id] = [];
+              }
+              filesByMeetingId[f.meeting_id].push({
+                id: f.id,
+                name: f.file_name,
+                size: f.file_size,
+                type: f.file_type,
+                storagePath: f.storage_path || null,
+                url: f.file_url || null,
+                data: f.file_data || null // Legacy base64 data
+              });
+            });
+          }
 
           const meetings = (meetingsData || []).map((m) => ({
             id: m.id,
@@ -416,7 +446,7 @@ const useStore = create(
             payable: m.payable || '',
             dealProposals: m.deal_proposals || '',
             routeIssue: m.route_issue || '',
-            files: m.files || [],
+            files: filesByMeetingId[m.id] || [],
             linkedRates: m.linked_rates || [],
             clientOffers: m.client_offers || []
           }));
@@ -447,7 +477,6 @@ const useStore = create(
 
           get().showToast('Data loaded successfully', 'success');
         } catch (error) {
-          console.error('Error loading from Supabase:', error);
           get().showToast('Error loading data', 'error');
         } finally {
           get().setLoading(false);
@@ -472,7 +501,7 @@ const useStore = create(
 
           await supabase.from('companies').upsert(record, { onConflict: 'id' });
         } catch (error) {
-          console.error('Error saving company:', error);
+          get().showToast('Error saving company', 'error');
         }
       },
 
@@ -509,11 +538,9 @@ const useStore = create(
             updated_at: new Date().toISOString()
           };
 
-          console.log('📅 Saving meeting to Supabase:', record.id, record.company_id, record.company);
           const { error } = await supabase.from('meetings').upsert(record, { onConflict: 'id' });
 
           if (error) {
-            console.error('❌ Supabase error saving meeting:', error);
             get().showToast('Error saving meeting to database', 'error');
             return false;
           }
@@ -526,15 +553,15 @@ const useStore = create(
               file_name: f.name,
               file_size: f.size,
               file_type: f.type,
-              file_data: f.data
+              storage_path: f.storagePath || null, // Use Supabase Storage path
+              file_url: f.url || null,
+              file_data: f.storagePath ? null : f.data // Only store base64 if no storage path (legacy)
             }));
             await supabase.from('meeting_files').insert(fileRecords);
           }
 
-          console.log('✅ Meeting saved successfully:', record.id);
           return true;
         } catch (error) {
-          console.error('❌ Error saving meeting:', error);
           get().showToast('Error saving meeting', 'error');
           return false;
         }
@@ -594,7 +621,6 @@ const useStore = create(
 
           set({ deletedRateIds: [] });
         } catch (error) {
-          console.error('Error saving rates:', error);
           throw error;
         }
       },

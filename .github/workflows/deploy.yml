@@ -39,6 +39,9 @@ jobs:
 
       - name: Build
         working-directory: teleroute-react
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: pnpm build
 
       - name: Setup Pages

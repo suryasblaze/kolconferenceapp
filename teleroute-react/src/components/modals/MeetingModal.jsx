@@ -15,9 +15,11 @@ import {
   Export,
   Download,
   NotePencil,
-  Link
+  Link,
+  SpinnerGap
 } from '@phosphor-icons/react';
 import useStore from '../../store/useStore';
+import { uploadFile, validateFile, getSignedUrl, deleteFile } from '../../lib/storage';
 
 export default function MeetingModal() {
   const {
@@ -50,6 +52,7 @@ export default function MeetingModal() {
   const [clientOffers, setClientOffers] = useState([]);
   const [files, setFiles] = useState([]);
   const [previewRate, setPreviewRate] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   const meeting = meetings.find(m => m.id === editingMeetingId);
   const company = meeting ? companies.find(c => c.id === meeting.companyId) : null;
@@ -220,19 +223,60 @@ export default function MeetingModal() {
     setClientOffers(clientOffers.filter((_, i) => i !== index));
   };
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
     const uploadedFiles = Array.from(event.target.files);
-    const newFiles = uploadedFiles.map(file => ({
-      id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      data: URL.createObjectURL(file)
-    }));
-    setFiles([...files, ...newFiles]);
+
+    if (uploadedFiles.length === 0) return;
+
+    setUploading(true);
+    const newFiles = [];
+
+    for (const file of uploadedFiles) {
+      // Validate file
+      const validation = validateFile(file);
+      if (!validation.valid) {
+        showToast(validation.error, 'error');
+        continue;
+      }
+
+      // Upload to Supabase Storage
+      const result = await uploadFile(file, meeting.id);
+
+      if (result.success) {
+        newFiles.push({
+          id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          name: result.fileName,
+          size: result.fileSize,
+          type: result.fileType,
+          storagePath: result.path,
+          url: result.url
+        });
+      } else {
+        showToast(`Failed to upload ${file.name}: ${result.error}`, 'error');
+      }
+    }
+
+    if (newFiles.length > 0) {
+      setFiles([...files, ...newFiles]);
+      showToast(`${newFiles.length} file(s) uploaded`, 'success');
+    }
+
+    setUploading(false);
+    // Reset file input
+    event.target.value = '';
   };
 
-  const removeFile = (fileId) => {
+  const removeFile = async (fileId) => {
+    const fileToRemove = files.find(f => f.id === fileId);
+
+    // Delete from Supabase Storage if it has a storage path
+    if (fileToRemove?.storagePath) {
+      const result = await deleteFile(fileToRemove.storagePath);
+      if (!result.success) {
+        showToast('Failed to delete file from storage', 'error');
+      }
+    }
+
     setFiles(files.filter(f => f.id !== fileId));
   };
 
@@ -489,11 +533,21 @@ export default function MeetingModal() {
               {/* Attachments */}
               <div className="form-group">
                 <label><Paperclip size={14} className="inline" /> Attachments</label>
-                <label className="block w-full px-4 py-3 border-2 border-dashed border-slate-200 rounded-lg text-center cursor-pointer hover:border-[#3BC1A8] transition-colors">
-                  <Paperclip size={20} className="inline mr-2 text-slate-400" />
-                  <span className="text-sm text-slate-500">Click to attach files</span>
-                  <input type="file" multiple onChange={handleFileUpload} className="hidden" />
+                <label className={`block w-full px-4 py-3 border-2 border-dashed border-slate-200 rounded-lg text-center transition-colors ${uploading ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:border-[#3BC1A8]'}`}>
+                  {uploading ? (
+                    <>
+                      <SpinnerGap size={20} className="inline mr-2 text-[#3BC1A8] animate-spin" />
+                      <span className="text-sm text-slate-500">Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Paperclip size={20} className="inline mr-2 text-slate-400" />
+                      <span className="text-sm text-slate-500">Click to attach files (Max 10MB)</span>
+                    </>
+                  )}
+                  <input type="file" multiple onChange={handleFileUpload} className="hidden" disabled={uploading} />
                 </label>
+                <p className="text-xs text-slate-400 mt-1">Allowed: PDF, images, Office docs, text files</p>
                 {files.length > 0 && (
                   <div className="file-list">
                     {files.map(file => (
@@ -501,7 +555,7 @@ export default function MeetingModal() {
                         <File size={16} className="text-[#3BC1A8]" />
                         <span className="name">{file.name}</span>
                         <span className="text-xs text-slate-400">{formatFileSize(file.size)}</span>
-                        <button onClick={() => removeFile(file.id)}><X size={14} /></button>
+                        <button onClick={() => removeFile(file.id)} className="text-red-500"><X size={14} /></button>
                       </div>
                     ))}
                   </div>
@@ -661,7 +715,24 @@ export default function MeetingModal() {
                 {files.length > 0 ? (
                   <div className="space-y-2">
                     {files.map(file => (
-                      <div key={file.id} className="file-display-item" onClick={() => window.open(file.data)}>
+                      <div
+                        key={file.id}
+                        className="file-display-item cursor-pointer"
+                        onClick={async () => {
+                          if (file.storagePath) {
+                            // Get signed URL for private bucket
+                            const result = await getSignedUrl(file.storagePath);
+                            if (result.success) {
+                              window.open(result.url, '_blank');
+                            } else {
+                              showToast('Failed to get file URL', 'error');
+                            }
+                          } else if (file.url || file.data) {
+                            // Fallback for legacy files
+                            window.open(file.url || file.data, '_blank');
+                          }
+                        }}
+                      >
                         <File size={24} className="text-[#3BC1A8]" />
                         <div className="file-info">
                           <div className="file-name">{file.name}</div>
