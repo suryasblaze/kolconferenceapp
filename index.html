@@ -7,7 +7,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#005461">
-    <title>TeleRoute Admin</title>
+    <title>TeleMeet Admin</title>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -2966,7 +2966,7 @@
 
             async init() {
                 // FIXED: Restore active tab from localStorage FIRST
-                const savedTab = localStorage.getItem('teleroute_active_tab');
+                const savedTab = localStorage.getItem('telemeet_active_tab');
                 if (savedTab && ['rates', 'companies', 'meetings', 'clientoffers', 'ouroffers'].includes(savedTab)) {
                     this.state.activeTab = savedTab;
                 }
@@ -3482,7 +3482,7 @@
                 let instructions;
                 if (isVoice) {
                     instructions = [
-                        ['TeleRoute Voice Template Instructions'],
+                        ['TeleMeet Voice Template Instructions'],
                         [''],
                         ['Column Descriptions:'],
                         ['Destination', 'Country or destination name (e.g., India, USA, UK)'],
@@ -3504,7 +3504,7 @@
                     ];
                 } else {
                     instructions = [
-                        ['TeleRoute SMS Template Instructions'],
+                        ['TeleMeet SMS Template Instructions'],
                         [''],
                         ['Column Descriptions:'],
                         ['Designation', 'Country or destination name (e.g., India, USA, UK)'],
@@ -4205,7 +4205,7 @@
             switchTab(tab) {
                 this.state.activeTab = tab;
                 // Save active tab to localStorage for persistence
-                localStorage.setItem('teleroute_active_tab', tab);
+                localStorage.setItem('telemeet_active_tab', tab);
 
                 // Update tab buttons
                 document.getElementById('tab-rates').className = `tab-btn ${tab === 'rates' ? 'active' : ''}`;
