@@ -22,9 +22,12 @@ Thumbs.db
 
 # Node modules
 node_modules/
-teleroute-react/node_modules/
+nexus/node_modules/
 
 # Build output
 dist/
 build/
-teleroute-react/dist/
+nexus/dist/
+
+# Old folder (to be deleted)
+teleroute-react/

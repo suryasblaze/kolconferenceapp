@@ -32,14 +32,14 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
-          cache-dependency-path: teleroute-react/pnpm-lock.yaml
+          cache-dependency-path: nexus/pnpm-lock.yaml
 
       - name: Install dependencies
-        working-directory: teleroute-react
+        working-directory: nexus
         run: pnpm install
 
       - name: Build
-        working-directory: teleroute-react
+        working-directory: nexus
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
@@ -51,7 +51,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: teleroute-react/dist
+          path: nexus/dist
 
   deploy:
     environment:
