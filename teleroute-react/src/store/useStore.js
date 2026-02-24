@@ -977,7 +977,7 @@ const useStore = create(
       }
     }),
     {
-      name: 'teleroute-storage',
+      name: 'nexus-storage',
       partialize: (state) => ({
         activeTab: state.activeTab,
         serviceType: state.serviceType,

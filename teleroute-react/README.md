@@ -1,6 +1,6 @@
-# TeleRoute Admin - React Version
+# Nexus
 
-A modern React + Vite migration of the TeleRoute Admin application with Supabase backend.
+SMS & Voice conference management app built with React + Vite and Supabase backend.
 
 ## Features
 

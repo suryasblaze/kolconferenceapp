@@ -122,7 +122,7 @@ export default function Header() {
     <header className="bg-[#005461] text-white safe-top">
       {/* Logo Row */}
       <div className="flex items-center justify-between px-4 py-2">
-        <img src={`${import.meta.env.BASE_URL}logo.gif`} alt="TeleRoute" className="h-12 rounded-lg" />
+        <img src={`${import.meta.env.BASE_URL}logo.gif`} alt="Nexus" className="h-12 rounded-lg" />
         <div className="flex items-center gap-2">
           <button
             onClick={() => setHeaderCollapsed(!headerCollapsed)}
