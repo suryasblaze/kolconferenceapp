@@ -11,45 +11,76 @@ const isInStandaloneMode = () => {
     window.navigator.standalone === true;
 };
 
+// Check if PWA is already installed using getInstalledRelatedApps API
+const checkIfInstalled = async () => {
+  // Check localStorage first (fallback for browsers without API)
+  if (localStorage.getItem('pwaInstalled')) {
+    return true;
+  }
+
+  // Use getInstalledRelatedApps API if available (Chrome/Edge)
+  if ('getInstalledRelatedApps' in navigator) {
+    try {
+      const relatedApps = await navigator.getInstalledRelatedApps();
+      if (relatedApps.length > 0) {
+        localStorage.setItem('pwaInstalled', 'true');
+        return true;
+      }
+    } catch (e) {
+      // API not supported or failed
+    }
+  }
+
+  return false;
+};
+
 export default function PWAInstallBanner() {
   const [showBanner, setShowBanner] = useState(false);
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
   const [isIOSDevice, setIsIOSDevice] = useState(false);
 
   useEffect(() => {
-    // Check if already dismissed or running as PWA
-    const wasDismissed = sessionStorage.getItem('pwaInstallDismissed');
-    if (wasDismissed || isInStandaloneMode()) {
-      return;
-    }
+    const initBanner = async () => {
+      // Check if already dismissed, installed, or running as PWA
+      const wasDismissed = localStorage.getItem('pwaInstallDismissed');
+      const isInstalled = await checkIfInstalled();
 
-    const iosDevice = isIOS();
-    setIsIOSDevice(iosDevice);
+      if (wasDismissed || isInstalled || isInStandaloneMode()) {
+        return;
+      }
 
-    // For iOS, show banner after a short delay (no beforeinstallprompt event)
-    if (iosDevice) {
-      const timer = setTimeout(() => {
-        if (!sessionStorage.getItem('pwaInstallDismissed')) {
-          setShowBanner(true);
-        }
-      }, 3000); // Show after 3 seconds on iOS
-      return () => clearTimeout(timer);
-    }
+      const iosDevice = isIOS();
+      setIsIOSDevice(iosDevice);
 
-    // For other browsers, check if install prompt is available
-    if (window.isPWAInstallAvailable?.()) {
-      setShowBanner(true);
-    }
+      // For iOS, show banner after a short delay (no beforeinstallprompt event)
+      if (iosDevice) {
+        setTimeout(() => {
+          if (!localStorage.getItem('pwaInstallDismissed') && !localStorage.getItem('pwaInstalled')) {
+            setShowBanner(true);
+          }
+        }, 3000);
+        return;
+      }
+
+      // For other browsers, check if install prompt is available
+      if (window.isPWAInstallAvailable?.()) {
+        setShowBanner(true);
+      }
+    };
+
+    initBanner();
 
     // Listen for the custom event from main.jsx
-    const handleInstallAvailable = () => {
-      if (!sessionStorage.getItem('pwaInstallDismissed')) {
+    const handleInstallAvailable = async () => {
+      const isInstalled = await checkIfInstalled();
+      if (!localStorage.getItem('pwaInstallDismissed') && !isInstalled) {
         setShowBanner(true);
       }
     };
 
     const handleInstalled = () => {
       setShowBanner(false);
+      localStorage.setItem('pwaInstalled', 'true');
     };
 
     window.addEventListener('pwaInstallAvailable', handleInstallAvailable);
@@ -69,6 +100,7 @@ export default function PWAInstallBanner() {
       const result = await window.showPWAInstallPrompt();
       if (result.outcome === 'accepted') {
         setShowBanner(false);
+        localStorage.setItem('pwaInstalled', 'true'); // Remember installation
       }
     }
   };
@@ -76,7 +108,7 @@ export default function PWAInstallBanner() {
   const handleDismiss = () => {
     setShowBanner(false);
     setShowIOSInstructions(false);
-    sessionStorage.setItem('pwaInstallDismissed', 'true');
+    localStorage.setItem('pwaInstallDismissed', 'true');
   };
 
   if (!showBanner) {

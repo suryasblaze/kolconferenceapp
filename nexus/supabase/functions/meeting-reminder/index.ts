@@ -291,6 +291,7 @@ Deno.serve(async (_req) => {
     for (const meeting of meetings) {
       if (!meeting.start_time) continue;
 
+      // Start time reminders
       const meetingLocal = new Date(`${todayStr}T${meeting.start_time}`);
       const meetingUtc = new Date(meetingLocal.getTime() - tzOffsetMs);
       const diffMin = (meetingUtc.getTime() - now.getTime()) / 60000;
@@ -303,6 +304,22 @@ Deno.serve(async (_req) => {
       }
       if (diffMin >= -2 && diffMin <= 2) {
         reminders.push({ meeting, reminderType: "now", minutesUntil: 0, urgent: true });
+      }
+
+      // End time reminders
+      if (meeting.end_time) {
+        const endLocal = new Date(`${todayStr}T${meeting.end_time}`);
+        const endUtc = new Date(endLocal.getTime() - tzOffsetMs);
+        const endDiffMin = (endUtc.getTime() - now.getTime()) / 60000;
+
+        // 1 minute before end (window: 0-2 min before end)
+        if (endDiffMin > 0 && endDiffMin <= 2) {
+          reminders.push({ meeting, reminderType: "end_1min", minutesUntil: Math.round(endDiffMin), urgent: true });
+        }
+        // At end time (window: 0-2 min after end)
+        if (endDiffMin >= -2 && endDiffMin <= 0) {
+          reminders.push({ meeting, reminderType: "ended", minutesUntil: 0, urgent: true });
+        }
       }
     }
 
@@ -345,7 +362,17 @@ Deno.serve(async (_req) => {
       const { meeting, reminderType, minutesUntil, urgent } = reminder;
 
       let title: string, body: string;
-      if (minutesUntil <= 0) {
+
+      // End time reminders
+      if (reminderType === "ended") {
+        title = "Meeting Ended";
+        body = `Meeting with ${meeting.company} has ended`;
+      } else if (reminderType === "end_1min") {
+        title = "Meeting Ending Soon!";
+        body = `Meeting with ${meeting.company} ends in ~1 minute - wrap up!`;
+      }
+      // Start time reminders
+      else if (reminderType === "now") {
         title = "Meeting Starting Now!";
         body = `Meeting with ${meeting.company} is starting now!`;
       } else if (minutesUntil <= 5) {
