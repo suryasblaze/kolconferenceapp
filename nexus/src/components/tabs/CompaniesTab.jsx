@@ -37,26 +37,34 @@ const CompanyCard = memo(function CompanyCard({
         <div className="company-name">{company.name}</div>
         {company.contactPerson && (
           <div className="company-contact">
-            <MapPin size={12} />
-            {company.contactPerson}
+            <MapPin size={12} className="flex-shrink-0" />
+            <span className="truncate">{company.contactPerson}</span>
           </div>
         )}
         {company.email && (
-          <div className="company-contact">
-            <Envelope size={12} />
-            {company.email}
+          <div
+            className="company-contact hover:text-emerald-600 cursor-pointer"
+            title={company.email}
+            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(company.email); useStore.getState().showToast(`Copied: ${company.email}`, 'success'); }}
+          >
+            <Envelope size={12} className="flex-shrink-0" />
+            <span className="truncate">{company.email}</span>
           </div>
         )}
         {company.phone && (
-          <div className="company-contact">
-            <DeviceMobile size={12} />
-            {company.phone}
+          <div
+            className="company-contact hover:text-emerald-600 cursor-pointer"
+            title={company.phone}
+            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(company.phone); useStore.getState().showToast(`Copied: ${company.phone}`, 'success'); }}
+          >
+            <DeviceMobile size={12} className="flex-shrink-0" />
+            <span className="truncate">{company.phone}</span>
           </div>
         )}
         {company.createdBy && (
           <div className="company-contact text-blue-600">
-            <UserCircle size={12} />
-            Added by: {company.createdBy}
+            <UserCircle size={12} className="flex-shrink-0" />
+            <span className="truncate">Added by: {company.createdBy}</span>
           </div>
         )}
         {hasMeeting ? (
@@ -195,6 +203,14 @@ export default function CompaniesTab() {
       showToast('Company name is required', 'error');
       return;
     }
+    if (!newCompany.phone.trim()) {
+      showToast('Phone number is required', 'error');
+      return;
+    }
+    if (!newCompany.email.trim()) {
+      showToast('Email is required', 'error');
+      return;
+    }
 
     addCompany({
       ...newCompany,
@@ -305,15 +321,17 @@ export default function CompaniesTab() {
           />
           <input
             type="tel"
-            placeholder="Phone Number"
+            placeholder="Phone Number *"
             value={newCompany.phone}
             onChange={(e) => setNewCompany({ ...newCompany, phone: e.target.value })}
+            required
           />
           <input
             type="email"
-            placeholder="Email Address"
+            placeholder="Email Address *"
             value={newCompany.email}
             onChange={(e) => setNewCompany({ ...newCompany, email: e.target.value })}
+            required
           />
           <div className="flex gap-2 mt-2">
             <button

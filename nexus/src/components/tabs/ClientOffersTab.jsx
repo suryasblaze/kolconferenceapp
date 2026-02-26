@@ -476,9 +476,17 @@ export default function ClientOffersTab() {
                     <div className="text-xs text-slate-500 flex items-center gap-2">
                       <span>📅 {meeting.date} - {meeting.startTime?.slice(0, 5)}</span>
                     </div>
-                    <div className="text-xs text-slate-500 flex items-center gap-4 mt-1">
-                      {meeting.strongRegion && <span>🌍 Region: {meeting.strongRegion}</span>}
-                      {meeting.phone && <span>📞 {meeting.phone}</span>}
+                    <div className="text-xs text-slate-500 flex items-center gap-4 mt-1 min-w-0">
+                      {meeting.strongRegion && <span className="flex-shrink-0">🌍 Region: {meeting.strongRegion}</span>}
+                      {meeting.phone && (
+                        <span
+                          className="truncate hover:text-emerald-600 cursor-pointer"
+                          title={meeting.phone}
+                          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(meeting.phone); useStore.getState().showToast(`Copied: ${meeting.phone}`, 'success'); }}
+                        >
+                          📞 {meeting.phone}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
